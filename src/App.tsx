@@ -2,12 +2,26 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { startTransition, useEffect, useId, useState } from 'react'
 import './App.css'
+import {
+  formatGenerationFailure,
+  formatGenerationPartialSuccess,
+  formatGenerationSuccess,
+  formatImportFailure,
+  formatImportInProgress,
+  formatImportPartialSuccess,
+  formatImportSuccess,
+  formatInitError,
+  getBrowserLanguage,
+  getTranslations,
+  type Language,
+} from './i18n'
 import type {
   Account,
   GenerationProgressEvent,
   GenerationResult,
   ImportResult,
   NoticeState,
+  ProgressLog,
 } from './types'
 
 const DEFAULT_COUNT = '10'
@@ -17,11 +31,6 @@ const initialProgress: GenerationProgressEvent = {
   current: 0,
   total: 0,
   email: '',
-}
-
-const initialNotice: NoticeState = {
-  tone: 'neutral',
-  text: '准备就绪，等待开始生成。',
 }
 
 function isTauriRuntime() {
@@ -66,11 +75,14 @@ function formatTimestamp(value: string) {
 
 function App() {
   const countId = useId()
+  const [lang, setLang] = useState<Language>(getBrowserLanguage())
+  const t = getTranslations(lang)
   const [accounts, setAccounts] = useState<Account[]>([])
   const [selectedEmails, setSelectedEmails] = useState<string[]>([])
   const [countInput, setCountInput] = useState(DEFAULT_COUNT)
   const [progress, setProgress] = useState<GenerationProgressEvent>(initialProgress)
-  const [notice, setNotice] = useState<NoticeState>(initialNotice)
+  const [notice, setNotice] = useState<NoticeState>({ tone: 'neutral', text: t.generation.ready })
+  const [progressLogs, setProgressLogs] = useState<ProgressLog[]>([])
   const [recentErrors, setRecentErrors] = useState<string[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
@@ -98,7 +110,7 @@ function App() {
         setIsHydrating(false)
         setNotice({
           tone: 'neutral',
-          text: '当前是浏览器预览模式，Tauri commands 仅在桌面端可用。',
+          text: t.app.browserPreviewNotice,
         })
       })
       return
@@ -127,8 +139,20 @@ function App() {
               return
             }
 
+            const payload = event.payload
             startTransition(() => {
-              setProgress(event.payload)
+              setProgress(payload)
+              // Add progress log
+              if (payload.email) {
+                setProgressLogs((logs) => [
+                  ...logs,
+                  {
+                    type: 'success',
+                    message: `${payload.current}/${payload.total} - ${payload.email} ${t.status.success}`,
+                    timestamp: new Date().toISOString(),
+                  },
+                ])
+              }
             })
           },
         )
@@ -139,7 +163,7 @@ function App() {
 
         setNotice({
           tone: 'error',
-          text: `初始化失败：${getErrorMessage(error)}`,
+          text: formatInitError(lang, getErrorMessage(error)),
         })
       } finally {
         if (!disposed) {
@@ -152,7 +176,7 @@ function App() {
       disposed = true
       unlisten?.()
     }
-  }, [])
+  }, [t])
 
   const toggleSelection = (email: string) => {
     setSelectedEmails((current) =>
@@ -162,6 +186,17 @@ function App() {
     )
   }
 
+  const selectAllPending = () => {
+    const pendingEmails = accounts
+      .filter((account) => !account.imported)
+      .map((account) => account.email)
+    setSelectedEmails(pendingEmails)
+  }
+
+  const clearSelection = () => {
+    setSelectedEmails([])
+  }
+
   const handleGenerate = async () => {
     if (!canGenerate) {
       return
@@ -169,6 +204,7 @@ function App() {
 
     setIsGenerating(true)
     setRecentErrors([])
+    setProgressLogs([])
     setProgress({
       current: 0,
       total: requestedCount,
@@ -176,7 +212,7 @@ function App() {
     })
     setNotice({
       tone: 'neutral',
-      text: `正在生成 ${requestedCount} 个账号...`,
+      text: `${t.status.generating} ${requestedCount} ${t.generation.countUnit}...`,
     })
 
     try {
@@ -194,24 +230,24 @@ function App() {
       })
 
       setRecentErrors(result.errors)
-      setProgress((current) => ({
+      setProgress((current) => (({
         current: result.requested,
         total: result.requested,
         email: result.accounts.at(-1)?.email ?? current.email,
-      }))
+      })))
       setNotice({
         tone: result.failed > 0 ? 'error' : 'success',
         text:
           result.failed > 0
-            ? `生成完成，成功 ${result.succeeded} 个，失败 ${result.failed} 个。`
-            : `生成完成，已新增 ${result.succeeded} 个账号。`,
+            ? formatGenerationPartialSuccess(lang, result.succeeded, result.failed)
+            : formatGenerationSuccess(lang, result.succeeded),
       })
     } catch (error) {
       const message = getErrorMessage(error)
       setRecentErrors([message])
       setNotice({
         tone: 'error',
-        text: `生成失败：${message}`,
+        text: formatGenerationFailure(lang, message),
       })
     } finally {
       setIsGenerating(false)
@@ -227,7 +263,7 @@ function App() {
     setIsImporting(true)
     setNotice({
       tone: 'neutral',
-      text: `正在导入 ${emails.length} 个选中账号...`,
+      text: formatImportInProgress(lang, emails.length),
     })
 
     try {
@@ -242,13 +278,13 @@ function App() {
         tone: result.failed > 0 ? 'error' : 'success',
         text:
           result.failed > 0
-            ? `导入完成，已处理 ${result.imported} 个，失败 ${result.failed} 个。`
-            : `导入完成，已处理 ${result.imported} 个账号。`,
+            ? formatImportPartialSuccess(lang, result.imported, result.failed)
+            : formatImportSuccess(lang, result.imported),
       })
     } catch (error) {
       setNotice({
         tone: 'error',
-        text: `导入失败：${getErrorMessage(error)}`,
+        text: formatImportFailure(lang, getErrorMessage(error)),
       })
     } finally {
       setIsImporting(false)
@@ -257,20 +293,32 @@ function App() {
 
   const currentEmail =
     progress.email ||
-    (progress.current > 0 ? '本轮未产出邮箱' : '等待生成任务')
+    (progress.current > 0 ? t.generation.noEmailThisRound : t.generation.waitingForTask)
 
   return (
     <main className="app-shell">
       <section className="app-frame">
         <header className="frame-header">
           <div className="frame-title">
-            <p className="frame-kicker">Minimal Tech Console</p>
-            <h1>codexs</h1>
+            <p className="frame-kicker">{t.app.subtitle}</p>
+            <h1>{t.app.title}</h1>
           </div>
 
-          <div className={`runtime-indicator ${runtimeReady ? 'is-live' : ''}`}>
-            <span className="runtime-dot" />
-            {runtimeReady ? 'Tauri Connected' : 'Browser Preview'}
+          <div className="header-controls">
+            <select
+              className="lang-selector"
+              value={lang}
+              onChange={(e) => setLang(e.target.value as Language)}
+            >
+              <option value="zh">中文</option>
+              <option value="en">English</option>
+              <option value="ja">日本語</option>
+            </select>
+
+            <div className={`runtime-indicator ${runtimeReady ? 'is-live' : ''}`}>
+              <span className="runtime-dot" />
+              {runtimeReady ? t.app.runtimeConnected : t.app.browserPreview}
+            </div>
           </div>
         </header>
 
@@ -282,12 +330,12 @@ function App() {
         <section className="overview-grid">
           <article className="panel">
             <div className="panel-heading">
-              <p className="panel-tag">生成配置</p>
-              <h2>批量生成账号</h2>
+              <p className="panel-tag">{t.generation.subtitle}</p>
+              <h2>{t.generation.title}</h2>
             </div>
 
             <label className="field-card" htmlFor={countId}>
-              <span className="field-label">数量</span>
+              <span className="field-label">{t.generation.countLabel}</span>
               <div className="field-input">
                 <input
                   id={countId}
@@ -301,7 +349,7 @@ function App() {
                   placeholder={DEFAULT_COUNT}
                   disabled={isGenerating || isImporting}
                 />
-                <span className="field-suffix">个</span>
+                <span className="field-suffix">{t.generation.countUnit}</span>
               </div>
             </label>
 
@@ -311,19 +359,19 @@ function App() {
               onClick={handleGenerate}
               disabled={!canGenerate}
             >
-              {isGenerating ? '生成中...' : '开始生成'}
+              {isGenerating ? t.generation.generating : t.generation.startButton}
             </button>
 
             <div className="meta-row">
-              <span>{isHydrating ? '读取账号列表中...' : `${accounts.length} 个账号已载入`}</span>
-              <span>{requestedCount > 0 ? `本次计划 ${requestedCount} 个` : '请输入有效数量'}</span>
+              <span>{isHydrating ? t.generation.loadingAccounts : `${accounts.length} ${t.generation.accountsLoaded}`}</span>
+              <span>{requestedCount > 0 ? `${t.generation.planCount} ${requestedCount} ${t.generation.countUnit}` : t.generation.enterValidCount}</span>
             </div>
           </article>
 
           <article className="panel">
             <div className="panel-heading">
-              <p className="panel-tag">进度显示</p>
-              <h2>生成进度</h2>
+              <p className="panel-tag">{t.progress.subtitle}</p>
+              <h2>{t.progress.title}</h2>
             </div>
 
             <div className="progress-summary">
@@ -333,10 +381,10 @@ function App() {
               </div>
               <span className={`progress-state ${isGenerating ? 'is-active' : ''}`}>
                 {isGenerating
-                  ? '生成中'
+                  ? t.generation.inProgress
                   : totalProgress > 0 && progress.current >= totalProgress
-                    ? '已完成'
-                    : '待命'}
+                    ? t.generation.completed
+                    : t.generation.idle}
               </span>
             </div>
 
@@ -348,13 +396,26 @@ function App() {
             </div>
 
             <div className="progress-card">
-              <span className="progress-label">当前</span>
+              <span className="progress-label">{t.generation.currentLabel}</span>
               <strong className="progress-email">{currentEmail}</strong>
             </div>
 
+            {progressLogs.length > 0 && (
+              <div className="progress-logs">
+                <p>{t.generation.recentErrors}</p>
+                <ul>
+                  {progressLogs.slice(-5).reverse().map((log, index) => (
+                    <li key={`${log.timestamp}-${index}`} className={`log-${log.type}`}>
+                      {log.message}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+
             {recentErrors.length > 0 ? (
               <div className="diagnostics">
-                <p>最近异常</p>
+                <p>{t.generation.recentErrors}</p>
                 <ul>
                   {recentErrors.slice(0, 3).map((error) => (
                     <li key={error}>{error}</li>
@@ -368,24 +429,42 @@ function App() {
         <section className="panel accounts-panel">
           <div className="section-row">
             <div>
-              <p className="panel-tag">账号列表</p>
-              <h2>{`账号列表 (${accounts.length})`}</h2>
+              <p className="panel-tag">{t.accounts.title}</p>
+              <h2>{`${t.accounts.title} (${accounts.length})`}</h2>
             </div>
 
-            <button
-              className="action-button secondary"
-              type="button"
-              onClick={handleImport}
-              disabled={!canImport}
-            >
-              {isImporting ? '导入中...' : `导入选中账号${selectedCount > 0 ? ` (${selectedCount})` : ''}`}
-            </button>
+            <div className="button-group">
+              <button
+                className="action-button tertiary"
+                type="button"
+                onClick={selectAllPending}
+                disabled={isGenerating || isImporting || pendingCount === 0}
+              >
+                {t.accounts.selectAllPending}
+              </button>
+              <button
+                className="action-button tertiary"
+                type="button"
+                onClick={clearSelection}
+                disabled={isGenerating || isImporting || selectedCount === 0}
+              >
+                {t.accounts.clearSelection}
+              </button>
+              <button
+                className="action-button secondary"
+                type="button"
+                onClick={handleImport}
+                disabled={!canImport}
+              >
+                {isImporting ? t.accounts.importing : `${t.accounts.importButton}${selectedCount > 0 ? ` (${selectedCount})` : ''}`}
+              </button>
+            </div>
           </div>
 
           <div className="summary-chips" aria-label="账号统计">
-            <span>{`已导入 ${importedCount}`}</span>
-            <span>{`未导入 ${pendingCount}`}</span>
-            <span>{`已选中 ${selectedCount}`}</span>
+            <span>{`${t.accounts.imported} ${importedCount}`}</span>
+            <span>{`${t.accounts.pending} ${pendingCount}`}</span>
+            <span>{`${t.accounts.selected} ${selectedCount}`}</span>
           </div>
 
           {accounts.length > 0 ? (
@@ -421,7 +500,7 @@ function App() {
                       }`}
                     >
                       <span className="status-dot" />
-                      {account.imported ? '已导入' : '未导入'}
+                      {account.imported ? t.accounts.imported : t.accounts.pending}
                     </span>
                   </label>
                 )
@@ -429,8 +508,8 @@ function App() {
             </div>
           ) : (
             <div className="empty-state">
-              <strong>还没有账号</strong>
-              <p>先在上方设置数量并开始生成，列表会自动刷新。</p>
+              <strong>{t.accounts.emptyTitle}</strong>
+              <p>{t.accounts.emptyDescription}</p>
             </div>
           )}
         </section>

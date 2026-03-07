@@ -37,3 +37,9 @@ export interface NoticeState {
   tone: 'neutral' | 'success' | 'error'
   text: string
 }
+
+export interface ProgressLog {
+  type: 'success' | 'error' | 'info'
+  message: string
+  timestamp: string
+}

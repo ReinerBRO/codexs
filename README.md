@@ -1,100 +1,162 @@
-# codexs
+# Codexs
 
-codexs 是一个面向 macOS 的桌面工具，用于批量生成 OpenAI 账号、整理生成后的 token，并一键导入到 Codex Tools。项目基于 `Tauri v2 + React + TypeScript + Rust + Python` 构建，适合需要在本地维护多账号池和快速导入工作流的场景。
+<div align="center">
+  <img src="app-icon.png" alt="Codexs Logo" width="200"/>
 
-## 功能特性
+  **Codex 无限 Token 终极解决方案**
 
-- 批量生成 OpenAI 账号，支持一次性提交多个生成任务
-- 实时显示生成进度、当前邮箱、成功数和失败信息
-- 自动将原始 token 转换为 Codex Tools 可识别的格式
-- 按账号勾选导入到 Codex Tools，并记录导入状态
-- 将本地状态数据持久化到应用数据目录，便于后续继续管理
+  [![Release](https://img.shields.io/github/v/release/ReinerBRO/codexs)](https://github.com/ReinerBRO/codexs/releases)
+  [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+  [![Platform](https://img.shields.io/badge/platform-macOS-lightgrey)](https://github.com/ReinerBRO/codexs)
 
-## 安装
+  [English](#english) | [中文](#中文) | [日本語](#日本語)
+</div>
 
-1. 打开 GitHub Releases 页面，下载最新版本的 `.dmg` 安装包。
-2. 根据你的 Mac 芯片选择对应架构：
-   - Apple Silicon：下载文件名包含 `aarch64` 的版本
-   - Intel：下载文件名包含 `x86_64` 的版本
-3. 双击挂载 `.dmg`，将 `codexs.app` 拖入“应用程序”目录。
-4. 首次运行前，请确认本机已安装 `python3`。当前版本会调用系统 Python 执行内置自动化脚本。
+---
 
-## 使用说明
+## 中文
 
-1. 启动应用，在“批量生成账号”区域输入需要生成的账号数量。
-2. 点击“开始生成”，等待进度条和结果列表刷新。
-3. 在账号列表中勾选要导入的账号。
-4. 点击“导入到 Codex Tools”，等待导入完成提示。
-5. 打开或重启 Codex Tools，确认账号已经出现在账号列表中。
+### 简介
 
-补充说明：
+Codexs 是一个专为 Codex Tools 用户设计的桌面应用，帮助你批量生成 OpenAI 账号并一键导入到 Codex Tools，实现无限 token 自由。
 
-- 生成后的 token 与状态文件默认保存在 `~/Library/Application Support/com.codexs.app/`
-- Codex Tools 导入目标文件为 `~/Library/Application Support/com.carry.codex-tools/accounts.json`
+### 核心功能
 
-## 截图
+- ✅ **批量生成账号** - 想要多少就生成多少
+- ✅ **一键导入** - 自动导入到 Codex Tools
+- ✅ **智能去重** - 避免重复导入
+- ✅ **实时进度** - 显示详细的生成进度（"1/10 - email@example.com 成功"）
+- ✅ **多语言支持** - 中文、英文、日文
+- ✅ **现代界面** - Light 风格，简洁美观
+- ✅ **全选功能** - 一键全选未导入账号
 
-![codexs 界面截图占位符](docs/images/app-screenshot-placeholder.svg)
+### 快速开始
 
-> TODO: 将真实界面截图替换为主界面、生成完成态和导入完成态三张图片。
+1. 下载最新版本的 [Codexs.dmg](https://github.com/ReinerBRO/codexs/releases/latest)
+2. 拖动到 Applications 文件夹
+3. 打开应用（首次打开需要右键 → 打开）
+4. 输入要生成的账号数量
+5. 点击"开始生成"
+6. 点击"全选未导入"，然后点击"导入选中账号"
 
-## 开发指南
+### 使用提示
 
-### 环境要求
+- 建议一次生成 10-20 个账号
+- 生成的账号会自动保存在本地
+- **重要**：在 Codex Tools 中切换账号后，需要重新开启对话才能使用新账号额度（这是 Codex Tools 的会话机制限制）
 
-- macOS 11 或更高版本
-- Node.js 20+
-- Rust stable toolchain
-- Python 3.11+
-- Xcode Command Line Tools
+### 系统要求
 
-### 本地开发
+- macOS 11.0 或更高版本
+- Apple Silicon (M1/M2/M3) 或 Intel 处理器
+- 无需安装 Python 或其他依赖（已内置）
 
-```bash
-npm ci
-python3 -m pip install -r scripts/requirements.txt
-npm run tauri dev
-```
+### 技术栈
 
-### 本地打包
+- Tauri + React + TypeScript
+- Rust 后端
+- Python 脚本（已打包为独立可执行文件）
 
-```bash
-npm run tauri:build:mac
-npm run tauri:build:mac:arm64
-npm run tauri:build:mac:x64
-```
+---
 
-### 发布流程
+## English
 
-1. 确认 `package.json`、`src-tauri/tauri.conf.json` 和 `src-tauri/Cargo.toml` 的版本号一致。
-2. 创建并推送版本标签，例如：
+### Introduction
 
-```bash
-git tag v0.1.0
-git push origin v0.1.0
-```
+Codexs is a desktop application designed for Codex Tools users to batch generate OpenAI accounts and import them to Codex Tools with one click, achieving unlimited token freedom.
 
-3. GitHub Actions 会自动执行 macOS 双架构构建，并将产物上传到对应 Release。
+### Core Features
 
-### GitHub Actions 签名说明
+- ✅ **Batch Generation** - Generate as many accounts as you need
+- ✅ **One-Click Import** - Automatically import to Codex Tools
+- ✅ **Smart Deduplication** - Avoid duplicate imports
+- ✅ **Real-time Progress** - Display detailed generation progress ("1/10 - email@example.com Success")
+- ✅ **Multi-language** - Chinese, English, Japanese
+- ✅ **Modern UI** - Light theme, clean and beautiful
+- ✅ **Select All** - One-click select all pending accounts
 
-发布工作流支持两种模式：
+### Quick Start
 
-- 未配置 Apple 签名密钥时，自动回退为 ad-hoc 签名，便于内部测试分发
-- 配置完整 Apple 密钥后，可生成正式签名并继续扩展到 notarization 流程
+1. Download the latest [Codexs.dmg](https://github.com/ReinerBRO/codexs/releases/latest)
+2. Drag to Applications folder
+3. Open the app (first time: right-click → Open)
+4. Enter the number of accounts to generate
+5. Click "Start Generation"
+6. Click "Select All Pending", then click "Import Selected"
 
-如需正式签名，请在 GitHub 仓库 Secrets 中配置以下变量：
+### Usage Tips
 
-- `APPLE_CERTIFICATE`
-- `APPLE_CERTIFICATE_PASSWORD`
-- `APPLE_SIGNING_IDENTITY`（可选，未提供时由 Tauri 自动推断）
-- `APPLE_ID`
-- `APPLE_PASSWORD`
-- `APPLE_TEAM_ID`
+- Recommended to generate 10-20 accounts at a time
+- Generated accounts are automatically saved locally
+- **Important**: After switching accounts in Codex Tools, you need to restart the conversation to use the new account's quota (this is a limitation of Codex Tools' session mechanism)
 
-## 项目结构
+### System Requirements
 
-- `src/`：React 前端界面
-- `src-tauri/`：Rust 命令、Tauri 配置和 macOS 打包元数据
-- `scripts/`：OpenAI 注册、token 转换和 Codex Tools 导入脚本
-- `.github/workflows/release.yml`：GitHub 标签发布流水线
+- macOS 11.0 or higher
+- Apple Silicon (M1/M2/M3) or Intel processor
+- No need to install Python or other dependencies (built-in)
+
+### Tech Stack
+
+- Tauri + React + TypeScript
+- Rust backend
+- Python scripts (packaged as standalone executable)
+
+---
+
+## 日本語
+
+### 概要
+
+Codexs は Codex Tools ユーザー向けのデスクトップアプリケーションで、OpenAI アカウントを一括生成し、ワンクリックで Codex Tools にインポートすることで、無限トークンの自由を実現します。
+
+### 主な機能
+
+- ✅ **一括生成** - 必要な数だけアカウントを生成
+- ✅ **ワンクリックインポート** - Codex Tools に自動インポート
+- ✅ **スマート重複排除** - 重複インポートを回避
+- ✅ **リアルタイム進捗** - 詳細な生成進捗を表示（「1/10 - email@example.com 成功」）
+- ✅ **多言語対応** - 中国語、英語、日本語
+- ✅ **モダン UI** - ライトテーマ、シンプルで美しい
+- ✅ **全選択** - 未インポートアカウントをワンクリックで全選択
+
+### クイックスタート
+
+1. 最新版の [Codexs.dmg](https://github.com/ReinerBRO/codexs/releases/latest) をダウンロード
+2. Applications フォルダにドラッグ
+3. アプリを開く（初回：右クリック → 開く）
+4. 生成するアカウント数を入力
+5. 「生成開始」をクリック
+6. 「未インポートを全選択」をクリックし、「選択したアカウントをインポート」をクリック
+
+### 使用上のヒント
+
+- 一度に 10-20 個のアカウントを生成することをお勧めします
+- 生成されたアカウントは自動的にローカルに保存されます
+- **重要**：Codex Tools でアカウントを切り替えた後、新しいアカウントの割り当てを使用するには会話を再開する必要があります（これは Codex Tools のセッションメカニズムの制限です）
+
+### システム要件
+
+- macOS 11.0 以降
+- Apple Silicon (M1/M2/M3) または Intel プロセッサ
+- Python やその他の依存関係のインストールは不要（内蔵）
+
+### 技術スタック
+
+- Tauri + React + TypeScript
+- Rust バックエンド
+- Python スクリプト（スタンドアロン実行可能ファイルとしてパッケージ化）
+
+---
+
+## License
+
+MIT License
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## Disclaimer
+
+This tool is for educational and research purposes only. Please comply with OpenAI's Terms of Service and do not abuse the batch registration feature.

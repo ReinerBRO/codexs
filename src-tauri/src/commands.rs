@@ -384,6 +384,27 @@ async fn run_python_script(
     script_name: &str,
     args: &[&str],
 ) -> AppResult<Output> {
+    // For openai_register.py, use the bundled binary if available
+    if script_name == "openai_register.py" {
+        let binary_name = "openai_register_bin";
+        let binary_path = paths.scripts_dir.join(binary_name);
+
+        if binary_path.exists() {
+            let mut command = Command::new(&binary_path);
+            command.current_dir(current_dir).args(args);
+
+            let output = command.output().await.map_err(|error| {
+                AppError::new(format!(
+                    "执行独立可执行文件失败 ({}): {error}",
+                    binary_path.display()
+                ))
+            })?;
+
+            return Ok(output);
+        }
+    }
+
+    // Fallback to Python script
     let script_path = paths.scripts_dir.join(script_name);
     if !script_path.exists() {
         return Err(AppError::new(format!(
@@ -406,6 +427,7 @@ async fn run_python_script(
             python.display()
         ))
     })?;
+
 
     Ok(output)
 }
