@@ -76,7 +76,17 @@ button {
 }
 
 .frame-title {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
   min-width: 0;
+}
+
+.app-logo {
+  width: 48px;
+  height: 48px;
+  border-radius: 12px;
+  object-fit: cover;
 }
 
 .frame-kicker,

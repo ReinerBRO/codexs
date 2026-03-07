@@ -1,9 +1,9 @@
 {
-  "name": "codexs",
+  "name": "Codexs",
   "private": true,
   "version": "0.3.0",
   "license": "MIT",
-  "description": "codexs desktop app for OpenAI account generation workflows",
+  "description": "Codexs desktop app for OpenAI account generation workflows",
   "type": "module",
   "scripts": {
     "dev": "vite",

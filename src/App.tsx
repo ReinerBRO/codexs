@@ -2,6 +2,7 @@ import { invoke } from '@tauri-apps/api/core'
 import { listen } from '@tauri-apps/api/event'
 import { startTransition, useEffect, useId, useState } from 'react'
 import './App.css'
+import logo from './assets/logo.png'
 import {
   formatGenerationFailure,
   formatGenerationPartialSuccess,
@@ -354,8 +355,11 @@ function App() {
       <section className="app-frame">
         <header className="frame-header">
           <div className="frame-title">
-            <p className="frame-kicker">{t.app.subtitle}</p>
-            <h1>{t.app.title}</h1>
+            <img src={logo} alt="Codexs" className="app-logo" />
+            <div>
+              <p className="frame-kicker">{t.app.subtitle}</p>
+              <h1>{t.app.title}</h1>
+            </div>
           </div>
 
           <div className="header-controls">
