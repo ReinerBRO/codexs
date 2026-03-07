@@ -1,0 +1,54 @@
+:root {
+  font-family: 'Avenir Next', 'Helvetica Neue', 'Segoe UI', sans-serif;
+  line-height: 1.5;
+  font-weight: 400;
+  color: #f3f6fa;
+  background:
+    radial-gradient(circle at top left, rgba(52, 118, 194, 0.3), transparent 34%),
+    radial-gradient(circle at top right, rgba(255, 150, 0, 0.18), transparent 24%),
+    linear-gradient(180deg, #07101c 0%, #081420 52%, #0b1523 100%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  min-width: 320px;
+  min-height: 100%;
+}
+
+body {
+  min-width: 320px;
+  min-height: 100vh;
+  margin: 0;
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.03) 1px, transparent 1px);
+  background-size: 48px 48px;
+  mask-image: linear-gradient(180deg, rgba(0, 0, 0, 0.82), transparent 88%);
+  pointer-events: none;
+}
+
+a {
+  color: inherit;
+}
+
+code {
+  color: inherit;
+}
+
+#root {
+  position: relative;
+  min-height: 100vh;
+}

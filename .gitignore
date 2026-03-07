@@ -1,0 +1,31 @@
+# JSON 文件
+*.json
+!package.json
+!package-lock.json
+!tsconfig*.json
+!tauri.conf.json
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# Node
+node_modules/
+dist/
+
+# Tauri
+src-tauri/target/
+
+# Tokens
+tokens/
+codex_tokens/
+auths/
+
+# State
+accounts_state.json
+codex_tools_accounts_backup.json
+
+# macOS
+.DS_Store

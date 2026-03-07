@@ -1,0 +1,26 @@
+<svg width="1280" height="720" viewBox="0 0 1280 720" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1280" height="720" rx="32" fill="#0F172A"/>
+  <rect x="40" y="40" width="1200" height="640" rx="24" fill="#111827" stroke="#334155" stroke-width="2"/>
+  <rect x="76" y="92" width="320" height="536" rx="18" fill="#162033" stroke="#334155"/>
+  <rect x="428" y="92" width="776" height="160" rx="18" fill="#172554" stroke="#3B82F6"/>
+  <rect x="428" y="276" width="776" height="352" rx="18" fill="#111827" stroke="#334155"/>
+  <rect x="104" y="132" width="184" height="18" rx="9" fill="#38BDF8" fill-opacity="0.5"/>
+  <rect x="104" y="174" width="244" height="12" rx="6" fill="#475569"/>
+  <rect x="104" y="198" width="204" height="12" rx="6" fill="#334155"/>
+  <rect x="104" y="250" width="260" height="110" rx="16" fill="#0F172A" stroke="#334155"/>
+  <rect x="104" y="388" width="260" height="110" rx="16" fill="#0F172A" stroke="#334155"/>
+  <rect x="104" y="526" width="260" height="70" rx="16" fill="#0F172A" stroke="#334155"/>
+  <rect x="460" y="128" width="240" height="22" rx="11" fill="#93C5FD" fill-opacity="0.55"/>
+  <rect x="460" y="168" width="320" height="14" rx="7" fill="#60A5FA" fill-opacity="0.35"/>
+  <rect x="460" y="198" width="666" height="12" rx="6" fill="#334155"/>
+  <rect x="460" y="316" width="712" height="20" rx="10" fill="#E2E8F0" fill-opacity="0.08"/>
+  <rect x="460" y="356" width="712" height="20" rx="10" fill="#E2E8F0" fill-opacity="0.08"/>
+  <rect x="460" y="396" width="712" height="20" rx="10" fill="#E2E8F0" fill-opacity="0.08"/>
+  <rect x="460" y="436" width="712" height="20" rx="10" fill="#E2E8F0" fill-opacity="0.08"/>
+  <rect x="460" y="476" width="712" height="20" rx="10" fill="#E2E8F0" fill-opacity="0.08"/>
+  <rect x="460" y="516" width="420" height="16" rx="8" fill="#10B981" fill-opacity="0.45"/>
+  <rect x="460" y="548" width="300" height="16" rx="8" fill="#F59E0B" fill-opacity="0.45"/>
+  <text x="640" y="662" text-anchor="middle" fill="#CBD5E1" font-family="Helvetica, Arial, sans-serif" font-size="28" font-weight="700">
+    Screenshot Placeholder
+  </text>
+</svg>

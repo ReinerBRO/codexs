@@ -1,0 +1,708 @@
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700;800&display=swap');
+
+:root {
+  color-scheme: dark;
+  font-family: 'JetBrains Mono', 'SF Mono', 'Menlo', monospace;
+  --bg: #0a0a0a;
+  --panel: rgba(9, 17, 19, 0.82);
+  --panel-strong: rgba(8, 13, 15, 0.96);
+  --line: rgba(0, 240, 255, 0.16);
+  --line-strong: rgba(0, 240, 255, 0.42);
+  --text: #ebfeff;
+  --muted: rgba(197, 243, 247, 0.68);
+  --accent: #00f0ff;
+  --accent-soft: rgba(0, 240, 255, 0.1);
+  --accent-glow: rgba(0, 240, 255, 0.24);
+  --success: #00f0ff;
+  --error: #ff8f8f;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+}
+
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background:
+    radial-gradient(circle at 12% 18%, rgba(0, 240, 255, 0.14), transparent 28%),
+    radial-gradient(circle at 88% 0%, rgba(0, 240, 255, 0.08), transparent 24%),
+    linear-gradient(rgba(0, 240, 255, 0.025) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 240, 255, 0.025) 1px, transparent 1px);
+  background-size: auto, auto, 120px 120px, 120px 120px;
+  pointer-events: none;
+}
+
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(10, 10, 10, 0.16), rgba(10, 10, 10, 0.82));
+  pointer-events: none;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  border: 0;
+}
+
+.app-shell {
+  position: relative;
+  min-height: 100vh;
+  padding: clamp(1rem, 2vw, 2rem);
+}
+
+.app-shell::before {
+  content: '';
+  position: absolute;
+  inset: 4% auto auto 54%;
+  width: min(34vw, 360px);
+  height: min(34vw, 360px);
+  border-radius: 999px;
+  background: radial-gradient(circle, rgba(0, 240, 255, 0.12), transparent 68%);
+  filter: blur(24px);
+  pointer-events: none;
+}
+
+.app-frame {
+  position: relative;
+  width: min(1040px, 100%);
+  margin: 0 auto;
+  padding: clamp(1.25rem, 3vw, 2rem);
+  border: 1px solid var(--line);
+  border-radius: 30px;
+  background: linear-gradient(180deg, rgba(7, 12, 13, 0.96), rgba(10, 10, 10, 0.98));
+  box-shadow:
+    0 0 0 1px rgba(0, 240, 255, 0.05) inset,
+    0 0 42px var(--accent-glow),
+    0 28px 80px rgba(0, 0, 0, 0.72);
+  overflow: hidden;
+  animation: rise-in 720ms cubic-bezier(0.2, 0.85, 0.25, 1) both;
+}
+
+.app-frame::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(120deg, rgba(0, 240, 255, 0.06), transparent 18%),
+    linear-gradient(180deg, transparent, rgba(255, 255, 255, 0.02));
+  pointer-events: none;
+}
+
+.frame-header,
+.section-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.frame-header {
+  position: relative;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.frame-title {
+  min-width: 0;
+}
+
+.frame-kicker,
+.panel-tag,
+.field-label,
+.progress-label,
+.diagnostics p {
+  margin: 0;
+  font-size: 0.76rem;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.frame-title h1,
+.panel-heading h2,
+.section-row h2,
+.empty-state strong {
+  margin: 0;
+}
+
+.frame-title h1 {
+  margin-top: 0.55rem;
+  font-size: clamp(2rem, 4.5vw, 3.25rem);
+  line-height: 0.96;
+  letter-spacing: -0.05em;
+}
+
+.runtime-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  padding: 0.82rem 1rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.02);
+  border: 1px solid var(--line);
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.runtime-indicator.is-live {
+  color: var(--text);
+  box-shadow: 0 0 16px rgba(0, 240, 255, 0.12) inset;
+}
+
+.runtime-dot,
+.status-marker,
+.status-dot {
+  flex: none;
+  border-radius: 999px;
+}
+
+.runtime-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.runtime-indicator.is-live .runtime-dot {
+  background: var(--accent);
+  box-shadow: 0 0 12px rgba(0, 240, 255, 0.85);
+  animation: pulse 2.2s ease-in-out infinite;
+}
+
+.status-banner {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.8rem;
+  margin-top: 1rem;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+}
+
+.status-banner.tone-neutral {
+  border-color: var(--line);
+  color: var(--text);
+}
+
+.status-banner.tone-success {
+  border-color: rgba(0, 240, 255, 0.28);
+  color: var(--text);
+}
+
+.status-banner.tone-error {
+  border-color: rgba(255, 143, 143, 0.28);
+  color: #ffdede;
+}
+
+.status-marker {
+  width: 0.55rem;
+  height: 0.55rem;
+  background: currentColor;
+  opacity: 0.92;
+}
+
+.overview-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.panel {
+  position: relative;
+  padding: 1.2rem;
+  border-radius: 24px;
+  background: var(--panel);
+  border: 1px solid rgba(0, 240, 255, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
+  overflow: hidden;
+}
+
+.panel::after {
+  content: '';
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(0, 240, 255, 0.42), transparent);
+  opacity: 0.45;
+}
+
+.accounts-panel {
+  margin-top: 1rem;
+}
+
+.panel-heading {
+  display: grid;
+  gap: 0.45rem;
+  margin-bottom: 1rem;
+}
+
+.panel-heading h2,
+.section-row h2 {
+  font-size: 1.25rem;
+  letter-spacing: -0.03em;
+}
+
+.field-card,
+.progress-card,
+.empty-state {
+  border-radius: 18px;
+  border: 1px solid rgba(0, 240, 255, 0.1);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.field-card {
+  display: grid;
+  gap: 0.85rem;
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+.field-input {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.95rem 1rem;
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(0, 240, 255, 0.14);
+}
+
+.field-input:focus-within {
+  border-color: var(--line-strong);
+  box-shadow: 0 0 0 1px rgba(0, 240, 255, 0.18);
+}
+
+.field-input input {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  background: transparent;
+  font-size: 1.2rem;
+}
+
+.field-input input::placeholder {
+  color: rgba(197, 243, 247, 0.28);
+}
+
+.field-suffix {
+  color: var(--muted);
+}
+
+.action-button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 50px;
+  padding: 0 1.15rem;
+  border-radius: 16px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition:
+    transform 180ms ease,
+    box-shadow 180ms ease,
+    border-color 180ms ease,
+    opacity 180ms ease,
+    background 180ms ease;
+}
+
+.action-button:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.action-button:disabled {
+  opacity: 0.42;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: none;
+}
+
+.action-button.primary {
+  width: 100%;
+  background: linear-gradient(180deg, rgba(0, 240, 255, 0.2), rgba(0, 240, 255, 0.08));
+  color: var(--text);
+  border-color: rgba(0, 240, 255, 0.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 0 24px rgba(0, 240, 255, 0.12);
+}
+
+.action-button.secondary {
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--text);
+  border-color: rgba(0, 240, 255, 0.18);
+}
+
+.meta-row,
+.summary-chips,
+.progress-summary {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+
+.meta-row {
+  margin-top: 0.9rem;
+  color: var(--muted);
+  font-size: 0.86rem;
+}
+
+.progress-summary strong {
+  font-size: 1.6rem;
+  line-height: 1;
+}
+
+.progress-summary > div {
+  display: flex;
+  align-items: baseline;
+  gap: 0.65rem;
+}
+
+.progress-summary span {
+  color: var(--muted);
+}
+
+.progress-state {
+  padding: 0.45rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 240, 255, 0.12);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.progress-state.is-active {
+  color: var(--text);
+  border-color: rgba(0, 240, 255, 0.24);
+  box-shadow: 0 0 18px rgba(0, 240, 255, 0.08) inset;
+}
+
+.progress-track {
+  position: relative;
+  height: 11px;
+  margin-top: 1rem;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(0, 240, 255, 0.08);
+  overflow: hidden;
+}
+
+.progress-fill {
+  position: relative;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, rgba(0, 240, 255, 0.26), #00f0ff 70%, #b5feff);
+  box-shadow: 0 0 18px rgba(0, 240, 255, 0.35);
+  transition: width 220ms ease;
+}
+
+.progress-fill::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  transform: translateX(-100%);
+  animation: scanner 2.8s linear infinite;
+}
+
+.progress-card {
+  display: grid;
+  gap: 0.65rem;
+  margin-top: 1rem;
+  padding: 1rem;
+}
+
+.progress-email,
+.account-email {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.progress-email {
+  font-size: 1.02rem;
+}
+
+.diagnostics {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 1px solid rgba(0, 240, 255, 0.1);
+}
+
+.diagnostics ul {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 0.55rem;
+}
+
+.diagnostics li {
+  padding: 0.75rem 0.85rem;
+  border-radius: 14px;
+  background: rgba(255, 143, 143, 0.08);
+  border: 1px solid rgba(255, 143, 143, 0.16);
+  color: #ffd6d6;
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.summary-chips {
+  margin: 1rem 0;
+}
+
+.summary-chips span {
+  padding: 0.55rem 0.8rem;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 240, 255, 0.12);
+  background: rgba(255, 255, 255, 0.02);
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.account-list {
+  display: grid;
+  gap: 0.75rem;
+  max-height: 420px;
+  overflow: auto;
+  padding-right: 0.2rem;
+}
+
+.account-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.account-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(0, 240, 255, 0.18);
+}
+
+.account-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.95rem 1rem;
+  border-radius: 18px;
+  border: 1px solid rgba(0, 240, 255, 0.08);
+  background: rgba(255, 255, 255, 0.02);
+  cursor: pointer;
+  transition:
+    border-color 180ms ease,
+    background 180ms ease,
+    transform 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.account-row:hover {
+  transform: translateY(-1px);
+  border-color: rgba(0, 240, 255, 0.2);
+  background: rgba(0, 240, 255, 0.045);
+}
+
+.account-row.is-selected {
+  background: rgba(0, 240, 255, 0.08);
+  border-color: rgba(0, 240, 255, 0.32);
+  box-shadow: 0 0 0 1px rgba(0, 240, 255, 0.08) inset;
+}
+
+.account-check {
+  position: relative;
+  width: 1.1rem;
+  height: 1.1rem;
+}
+
+.account-check input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+}
+
+.checkbox-mark {
+  position: absolute;
+  inset: 0;
+  border-radius: 6px;
+  border: 1px solid rgba(0, 240, 255, 0.32);
+  background: rgba(0, 0, 0, 0.34);
+  transition: border-color 180ms ease, background 180ms ease;
+}
+
+.checkbox-mark::after {
+  content: '';
+  position: absolute;
+  inset: 2px;
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(0, 240, 255, 0.95), rgba(0, 240, 255, 0.45));
+  opacity: 0;
+  transform: scale(0.55);
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+.account-row.is-selected .checkbox-mark {
+  border-color: rgba(0, 240, 255, 0.7);
+  background: rgba(0, 240, 255, 0.12);
+}
+
+.account-row.is-selected .checkbox-mark::after {
+  opacity: 1;
+  transform: scale(1);
+}
+
+.account-copy {
+  display: grid;
+  gap: 0.38rem;
+  min-width: 0;
+}
+
+.account-time {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.account-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  justify-self: end;
+  padding: 0.5rem 0.8rem;
+  border-radius: 999px;
+  font-size: 0.82rem;
+  border: 1px solid transparent;
+}
+
+.account-status .status-dot {
+  width: 0.45rem;
+  height: 0.45rem;
+  background: currentColor;
+}
+
+.account-status.is-imported {
+  color: var(--success);
+  border-color: rgba(0, 240, 255, 0.18);
+  background: rgba(0, 240, 255, 0.08);
+}
+
+.account-status.is-pending {
+  color: var(--muted);
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.empty-state {
+  padding: 2.8rem 1rem;
+  text-align: center;
+}
+
+.empty-state strong {
+  display: block;
+  margin-bottom: 0.55rem;
+  font-size: 1rem;
+}
+
+.empty-state p {
+  margin: 0;
+  color: var(--muted);
+}
+
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(20px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.65;
+    transform: scale(0.84);
+  }
+}
+
+@keyframes scanner {
+  to {
+    transform: translateX(140%);
+  }
+}
+
+@media (max-width: 880px) {
+  .frame-header,
+  .section-row,
+  .overview-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .frame-header,
+  .section-row {
+    flex-direction: column;
+  }
+
+  .overview-grid {
+    display: grid;
+  }
+
+  .runtime-indicator,
+  .action-button.secondary {
+    width: 100%;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-shell {
+    padding: 0.75rem;
+  }
+
+  .app-frame {
+    padding: 1rem;
+    border-radius: 24px;
+  }
+
+  .panel {
+    padding: 1rem;
+    border-radius: 20px;
+  }
+
+  .account-row {
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+
+  .account-status {
+    justify-self: start;
+    grid-column: 2;
+  }
+}
