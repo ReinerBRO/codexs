@@ -14,7 +14,9 @@ export interface Translations {
     countLabel: string
     countUnit: string
     startButton: string
+    stopButton: string
     generating: string
+    stopping: string
     accountsLoaded: string
     loadingAccounts: string
     planCount: string
@@ -27,6 +29,8 @@ export interface Translations {
     waitingForTask: string
     noEmailThisRound: string
     recentErrors: string
+    stopRequested: string
+    stopped: string
   }
   progress: {
     title: string
@@ -66,7 +70,9 @@ const translations: Record<Language, Translations> = {
       countLabel: '数量',
       countUnit: '个',
       startButton: '开始生成',
+      stopButton: '停止',
       generating: '生成中...',
+      stopping: '停止中...',
       accountsLoaded: '个账号已载入',
       loadingAccounts: '读取账号列表中...',
       planCount: '本次计划',
@@ -79,6 +85,8 @@ const translations: Record<Language, Translations> = {
       waitingForTask: '等待生成任务',
       noEmailThisRound: '本轮未产出邮箱',
       recentErrors: '最近异常',
+      stopRequested: '已请求停止，当前轮次结束后会停止。',
+      stopped: '已停止',
     },
     progress: {
       title: '生成进度',
@@ -116,7 +124,9 @@ const translations: Record<Language, Translations> = {
       countLabel: 'Count',
       countUnit: '',
       startButton: 'Start Generation',
+      stopButton: 'Stop',
       generating: 'Generating...',
+      stopping: 'Stopping...',
       accountsLoaded: 'accounts loaded',
       loadingAccounts: 'Loading accounts...',
       planCount: 'Planned',
@@ -129,6 +139,8 @@ const translations: Record<Language, Translations> = {
       waitingForTask: 'Waiting for task',
       noEmailThisRound: 'No email this round',
       recentErrors: 'Recent Errors',
+      stopRequested: 'Stop requested. The current attempt will finish first.',
+      stopped: 'Stopped',
     },
     progress: {
       title: 'Generation Progress',
@@ -166,7 +178,9 @@ const translations: Record<Language, Translations> = {
       countLabel: '数量',
       countUnit: '個',
       startButton: '生成開始',
+      stopButton: '停止',
       generating: '生成中...',
+      stopping: '停止中...',
       accountsLoaded: '個のアカウントを読み込みました',
       loadingAccounts: 'アカウントリストを読み込み中...',
       planCount: '今回の予定',
@@ -179,6 +193,8 @@ const translations: Record<Language, Translations> = {
       waitingForTask: '生成タスクを待っています',
       noEmailThisRound: 'このラウンドではメールが生成されませんでした',
       recentErrors: '最近のエラー',
+      stopRequested: '停止を受け付けました。現在の試行完了後に停止します。',
+      stopped: '停止済み',
     },
     progress: {
       title: '生成進捗',
@@ -228,6 +244,13 @@ export function formatGenerationPartialSuccess(lang: Language, succeeded: number
   if (lang === 'zh') return `生成完成，成功 ${succeeded} ${t.generation.countUnit}，失败 ${failed} ${t.generation.countUnit}。`
   if (lang === 'ja') return `生成完了。成功 ${succeeded} 個、失敗 ${failed} 個。`
   return `Generation completed. ${succeeded} succeeded, ${failed} failed.`
+}
+
+export function formatGenerationStopped(lang: Language, succeeded: number, failed: number): string {
+  const t = translations[lang]
+  if (lang === 'zh') return `生成已停止，成功 ${succeeded} ${t.generation.countUnit}，失败 ${failed} ${t.generation.countUnit}。`
+  if (lang === 'ja') return `生成を停止しました。成功 ${succeeded} 個、失敗 ${failed} 個。`
+  return `Generation stopped. ${succeeded} succeeded, ${failed} failed.`
 }
 
 export function formatGenerationFailure(lang: Language, message: string): string {

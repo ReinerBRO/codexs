@@ -20,6 +20,8 @@ pub struct GenerationProgressEvent {
     pub current: u32,
     pub total: u32,
     pub email: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub account: Option<Account>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -27,6 +29,7 @@ pub struct GenerationResult {
     pub requested: u32,
     pub succeeded: u32,
     pub failed: u32,
+    pub stopped: bool,
     pub accounts: Vec<GeneratedAccount>,
     pub errors: Vec<String>,
 }

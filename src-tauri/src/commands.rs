@@ -12,12 +12,43 @@ use std::{
     ffi::OsStr,
     path::{Path, PathBuf},
     process::Output,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::SystemTime,
 };
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::{fs, process::Command};
 
 const GENERATION_PROGRESS_EVENT: &str = "generation_progress";
+
+#[derive(Clone, Default)]
+pub struct GenerationControl {
+    stop_requested: Arc<AtomicBool>,
+}
+
+impl GenerationControl {
+    fn reset(&self) {
+        self.stop_requested.store(false, Ordering::SeqCst);
+    }
+
+    fn request_stop(&self) {
+        self.stop_requested.store(true, Ordering::SeqCst);
+    }
+
+    fn should_stop(&self) -> bool {
+        self.stop_requested.load(Ordering::SeqCst)
+    }
+}
+
+struct StopFlagResetGuard(GenerationControl);
+
+impl Drop for StopFlagResetGuard {
+    fn drop(&mut self) {
+        self.0.reset();
+    }
+}
 
 struct AppPaths {
     workspace_root: Option<PathBuf>,
@@ -72,29 +103,59 @@ struct ImportScriptSummary {
 }
 
 #[tauri::command]
-pub async fn start_generation(app: AppHandle, count: u32) -> AppResult<GenerationResult> {
+pub async fn start_generation(
+    app: AppHandle,
+    control: State<'_, GenerationControl>,
+    count: u32,
+) -> AppResult<GenerationResult> {
     let paths = app_paths(&app)?;
     let tokens_dir = paths.data_dir.join("tokens");
     let codex_tokens_dir = paths.data_dir.join("codex_tokens");
     let state_path = paths.data_dir.join("accounts_state.json");
+    let control = control.inner().clone();
+    let _stop_flag_reset_guard = StopFlagResetGuard(control.clone());
 
+    control.reset();
     ensure_dir(&tokens_dir).await?;
     ensure_dir(&codex_tokens_dir).await?;
     ensure_state_file(&state_path).await?;
+    let mut state = load_state(&state_path).await?;
 
     let mut result = GenerationResult {
         requested: count,
         succeeded: 0,
         failed: 0,
+        stopped: false,
         accounts: Vec::new(),
         errors: Vec::new(),
     };
 
     for current in 1..=count {
+        if control.should_stop() {
+            result.stopped = true;
+            break;
+        }
+
         let before_files = list_json_files(&tokens_dir, Some("token_")).await?;
         let output =
             run_python_script(&paths, &tokens_dir, "openai_register.py", &["--once"]).await?;
         let after_files = list_json_files(&tokens_dir, Some("token_")).await?;
+
+        if control.should_stop() {
+            if let Some(path) =
+                detect_newest_file(before_files.clone(), after_files.clone()).await?
+            {
+                if let Err(error) = fs::remove_file(&path).await {
+                    warn!(
+                        "停止生成时清理临时 token 失败 {}: {}",
+                        path.display(),
+                        error
+                    );
+                }
+            }
+            result.stopped = true;
+            break;
+        }
 
         let token_file = match detect_newest_file(before_files, after_files).await? {
             Some(path) => path,
@@ -104,15 +165,30 @@ pub async fn start_generation(app: AppHandle, count: u32) -> AppResult<Generatio
                     "第 {current} 次生成失败: {}",
                     command_output_summary(&output)
                 ));
-                emit_progress(&app, current, count, String::new());
+                emit_progress(&app, current, count, String::new(), None);
                 continue;
             }
         };
 
         match convert_generated_token(&paths.data_dir, &token_file, &codex_tokens_dir).await {
             Ok(account) => {
+                let imported = track_generated_account(&mut state, &account.email);
+                save_state(&state_path, &state).await?;
+
+                let emitted_account = Account {
+                    email: account.email.clone(),
+                    created_at: account.created_at.clone(),
+                    imported,
+                };
+
                 result.succeeded += 1;
-                emit_progress(&app, current, count, account.email.clone());
+                emit_progress(
+                    &app,
+                    current,
+                    count,
+                    account.email.clone(),
+                    Some(emitted_account),
+                );
                 result.accounts.push(account);
             }
             Err(error) => {
@@ -120,12 +196,18 @@ pub async fn start_generation(app: AppHandle, count: u32) -> AppResult<Generatio
                 result
                     .errors
                     .push(format!("第 {current} 次生成失败: {error}"));
-                emit_progress(&app, current, count, String::new());
+                emit_progress(&app, current, count, String::new(), None);
             }
         }
     }
 
     Ok(result)
+}
+
+#[tauri::command]
+pub fn stop_generation(control: State<'_, GenerationControl>) -> AppResult<()> {
+    control.request_stop();
+    Ok(())
 }
 
 #[tauri::command]
@@ -428,7 +510,6 @@ async fn run_python_script(
         ))
     })?;
 
-
     Ok(output)
 }
 
@@ -594,13 +675,43 @@ fn mark_accounts_imported(state: &mut AccountsState, imported_emails: &[String])
         .sort_by(|left, right| left.email.cmp(&right.email));
 }
 
-fn emit_progress(app: &AppHandle, current: u32, total: u32, email: String) {
+fn track_generated_account(state: &mut AccountsState, email: &str) -> bool {
+    let normalized = normalize_email(email);
+    if let Some(entry) = state
+        .accounts
+        .iter_mut()
+        .find(|entry| normalize_email(&entry.email) == normalized)
+    {
+        entry.email = normalized;
+        return entry.imported;
+    }
+
+    state.accounts.push(AccountStateEntry {
+        email: normalized,
+        imported: false,
+        imported_at: None,
+    });
+    state
+        .accounts
+        .sort_by(|left, right| left.email.cmp(&right.email));
+
+    false
+}
+
+fn emit_progress(
+    app: &AppHandle,
+    current: u32,
+    total: u32,
+    email: String,
+    account: Option<Account>,
+) {
     if let Err(error) = app.emit(
         GENERATION_PROGRESS_EVENT,
         GenerationProgressEvent {
             current,
             total,
             email,
+            account,
         },
     ) {
         warn!("发送生成进度事件失败: {error}");

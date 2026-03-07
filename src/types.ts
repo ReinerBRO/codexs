@@ -15,12 +15,14 @@ export interface GenerationProgressEvent {
   current: number
   total: number
   email: string
+  account?: Account | null
 }
 
 export interface GenerationResult {
   requested: number
   succeeded: number
   failed: number
+  stopped: boolean
   accounts: GeneratedAccount[]
   errors: string[]
 }

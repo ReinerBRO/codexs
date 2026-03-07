@@ -5,6 +5,7 @@ import './App.css'
 import {
   formatGenerationFailure,
   formatGenerationPartialSuccess,
+  formatGenerationStopped,
   formatGenerationSuccess,
   formatImportFailure,
   formatImportInProgress,
@@ -31,6 +32,7 @@ const initialProgress: GenerationProgressEvent = {
   current: 0,
   total: 0,
   email: '',
+  account: null,
 }
 
 function isTauriRuntime() {
@@ -73,6 +75,22 @@ function formatTimestamp(value: string) {
   }).format(date)
 }
 
+function sortAccounts(items: Account[]) {
+  return [...items].sort((left, right) => {
+    if (left.created_at !== right.created_at) {
+      return right.created_at.localeCompare(left.created_at)
+    }
+
+    return left.email.localeCompare(right.email)
+  })
+}
+
+function upsertAccount(items: Account[], nextAccount: Account) {
+  const nextItems = items.filter((account) => account.email !== nextAccount.email)
+  nextItems.push(nextAccount)
+  return sortAccounts(nextItems)
+}
+
 function App() {
   const countId = useId()
   const [lang, setLang] = useState<Language>(getBrowserLanguage())
@@ -85,9 +103,11 @@ function App() {
   const [progressLogs, setProgressLogs] = useState<ProgressLog[]>([])
   const [recentErrors, setRecentErrors] = useState<string[]>([])
   const [isGenerating, setIsGenerating] = useState(false)
+  const [isStopping, setIsStopping] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
   const [isHydrating, setIsHydrating] = useState(true)
   const [runtimeReady, setRuntimeReady] = useState(false)
+  const [generationStopped, setGenerationStopped] = useState(false)
 
   const parsedCount = Number.parseInt(countInput, 10)
   const requestedCount = Number.isFinite(parsedCount) ? parsedCount : 0
@@ -101,6 +121,7 @@ function App() {
   const pendingCount = accounts.length - importedCount
   const canGenerate =
     runtimeReady && !isGenerating && !isImporting && Number.isInteger(requestedCount) && requestedCount > 0
+  const canStop = runtimeReady && isGenerating && !isStopping
   const canImport = runtimeReady && !isGenerating && !isImporting && selectedCount > 0
 
   useEffect(() => {
@@ -142,7 +163,9 @@ function App() {
             const payload = event.payload
             startTransition(() => {
               setProgress(payload)
-              // Add progress log
+              if (payload.account) {
+                setAccounts((current) => upsertAccount(current, payload.account!))
+              }
               if (payload.email) {
                 setProgressLogs((logs) => [
                   ...logs,
@@ -203,12 +226,15 @@ function App() {
     }
 
     setIsGenerating(true)
+    setIsStopping(false)
+    setGenerationStopped(false)
     setRecentErrors([])
     setProgressLogs([])
     setProgress({
       current: 0,
       total: requestedCount,
       email: '',
+      account: null,
     })
     setNotice({
       tone: 'neutral',
@@ -230,27 +256,55 @@ function App() {
       })
 
       setRecentErrors(result.errors)
+      setGenerationStopped(result.stopped)
       setProgress((current) => (({
-        current: result.requested,
+        current: result.stopped ? result.succeeded + result.failed : result.requested,
         total: result.requested,
         email: result.accounts.at(-1)?.email ?? current.email,
+        account: current.account,
       })))
       setNotice({
-        tone: result.failed > 0 ? 'error' : 'success',
+        tone: result.stopped ? (result.failed > 0 ? 'error' : 'neutral') : result.failed > 0 ? 'error' : 'success',
         text:
-          result.failed > 0
-            ? formatGenerationPartialSuccess(lang, result.succeeded, result.failed)
-            : formatGenerationSuccess(lang, result.succeeded),
+          result.stopped
+            ? formatGenerationStopped(lang, result.succeeded, result.failed)
+            : result.failed > 0
+              ? formatGenerationPartialSuccess(lang, result.succeeded, result.failed)
+              : formatGenerationSuccess(lang, result.succeeded),
       })
     } catch (error) {
       const message = getErrorMessage(error)
       setRecentErrors([message])
+      setGenerationStopped(false)
       setNotice({
         tone: 'error',
         text: formatGenerationFailure(lang, message),
       })
     } finally {
+      setIsStopping(false)
       setIsGenerating(false)
+    }
+  }
+
+  const handleStopGeneration = async () => {
+    if (!canStop) {
+      return
+    }
+
+    setIsStopping(true)
+    setNotice({
+      tone: 'neutral',
+      text: t.generation.stopRequested,
+    })
+
+    try {
+      await invoke('stop_generation')
+    } catch (error) {
+      setIsStopping(false)
+      setNotice({
+        tone: 'error',
+        text: formatGenerationFailure(lang, getErrorMessage(error)),
+      })
     }
   }
 
@@ -353,14 +407,25 @@ function App() {
               </div>
             </label>
 
-            <button
-              className="action-button primary"
-              type="button"
-              onClick={handleGenerate}
-              disabled={!canGenerate}
-            >
-              {isGenerating ? t.generation.generating : t.generation.startButton}
-            </button>
+            {isGenerating ? (
+              <button
+                className="action-button primary"
+                type="button"
+                onClick={handleStopGeneration}
+                disabled={!canStop}
+              >
+                {isStopping ? t.generation.stopping : t.generation.stopButton}
+              </button>
+            ) : (
+              <button
+                className="action-button primary"
+                type="button"
+                onClick={handleGenerate}
+                disabled={!canGenerate}
+              >
+                {t.generation.startButton}
+              </button>
+            )}
 
             <div className="meta-row">
               <span>{isHydrating ? t.generation.loadingAccounts : `${accounts.length} ${t.generation.accountsLoaded}`}</span>
@@ -381,7 +446,11 @@ function App() {
               </div>
               <span className={`progress-state ${isGenerating ? 'is-active' : ''}`}>
                 {isGenerating
-                  ? t.generation.inProgress
+                  ? isStopping
+                    ? t.generation.stopping
+                    : t.generation.inProgress
+                  : generationStopped
+                    ? t.generation.stopped
                   : totalProgress > 0 && progress.current >= totalProgress
                     ? t.generation.completed
                     : t.generation.idle}
