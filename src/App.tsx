@@ -3,6 +3,7 @@ import { listen } from '@tauri-apps/api/event'
 import { startTransition, useEffect, useId, useState } from 'react'
 import './App.css'
 import logo from './assets/logo.png'
+import { AccountManagement } from './components/AccountManagement'
 import {
   formatGenerationFailure,
   formatGenerationPartialSuccess,
@@ -585,6 +586,13 @@ function App() {
               <p>{t.accounts.emptyDescription}</p>
             </div>
           )}
+        </section>
+
+        <section className="panel" style={{ marginTop: '2rem' }}>
+          <div className="panel-heading">
+            <h2>账号管理</h2>
+          </div>
+          <AccountManagement />
         </section>
       </section>
     </main>

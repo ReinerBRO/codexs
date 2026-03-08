@@ -1,7 +1,8 @@
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Account {
+pub struct AvailableAccount {
     pub email: String,
     pub created_at: String,
     pub imported: bool,
@@ -21,7 +22,7 @@ pub struct GenerationProgressEvent {
     pub total: u32,
     pub email: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub account: Option<Account>,
+    pub account: Option<AvailableAccount>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -55,6 +56,87 @@ pub struct AccountStateEntry {
     pub imported: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub imported_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Account {
+    pub id: String,
+    pub label: String,
+    pub email: Option<String>,
+    pub account_id: String,
+    pub plan_type: Option<String>,
+    pub auth_json: Value,
+    pub added_at: i64,
+    pub updated_at: i64,
+    pub usage: Option<Usage>,
+    pub usage_error: Option<String>,
+    pub is_current: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Usage {
+    pub five_hour: UsageWindow,
+    pub one_week: UsageWindow,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UsageWindow {
+    pub used: f64,
+    pub limit: f64,
+    pub percentage: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StoredAccount {
+    pub id: String,
+    pub label: String,
+    pub email: Option<String>,
+    pub account_id: String,
+    pub plan_type: Option<String>,
+    pub auth_json: Value,
+    pub added_at: i64,
+    pub updated_at: i64,
+    pub usage: Option<Usage>,
+    pub usage_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct AccountsStore {
+    #[serde(default)]
+    pub accounts: Vec<StoredAccount>,
+    #[serde(default)]
+    pub settings: StoreSettings,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct StoreSettings {}
+
+#[derive(Debug, Clone)]
+pub struct ExtractedAuth {
+    pub account_id: String,
+    pub access_token: String,
+    pub email: Option<String>,
+    pub plan_type: Option<String>,
+}
+
+impl StoredAccount {
+    pub fn to_account(&self, current_account_id: Option<&str>) -> Account {
+        Account {
+            id: self.id.clone(),
+            label: self.label.clone(),
+            email: self.email.clone(),
+            account_id: self.account_id.clone(),
+            plan_type: self.plan_type.clone(),
+            auth_json: self.auth_json.clone(),
+            added_at: self.added_at,
+            updated_at: self.updated_at,
+            usage: self.usage.clone(),
+            usage_error: self.usage_error.clone(),
+            is_current: current_account_id
+                .map(|id| id == self.account_id)
+                .unwrap_or(false),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]

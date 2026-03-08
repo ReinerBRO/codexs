@@ -26,3 +26,7 @@ tauri-plugin-log = "2"
 tokio = { version = "1", features = ["fs", "macros", "process", "rt-multi-thread"] }
 chrono = { version = "0.4", default-features = false, features = ["clock", "serde"] }
 base64 = "0.22"
+rusqlite = { version = "0.32", features = ["bundled"] }
+reqwest = { version = "0.12", features = ["json", "gzip"] }
+uuid = { version = "1", features = ["v4"] }
+dirs = "6"

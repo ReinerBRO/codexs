@@ -1,22 +1,32 @@
-use crate::models::{
-    Account, AccountStateEntry, AccountsState, AppError, AppResult, GeneratedAccount,
-    GenerationProgressEvent, GenerationResult, ImportResult,
+use crate::auth::{
+    current_auth_account_id, extract_auth, read_current_codex_auth,
+    read_current_codex_auth_optional, refresh_chatgpt_auth_tokens, write_active_codex_auth,
 };
+use crate::models::{
+    Account, AccountStateEntry, AccountsState, AccountsStore, AppError, AppResult,
+    AvailableAccount, GeneratedAccount, GenerationProgressEvent, GenerationResult, ImportResult,
+    StoredAccount as ManagedStoredAccount,
+};
+use crate::usage::{fetch_usage, FetchedUsage};
+use crate::utils::{now_unix_seconds, set_private_permissions, short_account};
 use base64::{engine::general_purpose::URL_SAFE, Engine as _};
 use chrono::{DateTime, SecondsFormat, Utc};
 use log::warn;
-use serde::Deserialize;
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
+use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::{
     collections::{HashMap, HashSet},
+    env,
     ffi::OsStr,
+    fs as stdfs,
     path::{Path, PathBuf},
     process::Output,
     sync::{
         atomic::{AtomicBool, Ordering},
-        Arc,
+        Arc, Mutex,
     },
-    time::SystemTime,
+    time::{Duration, SystemTime, UNIX_EPOCH},
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::{fs, process::Command};
@@ -26,6 +36,11 @@ const GENERATION_PROGRESS_EVENT: &str = "generation_progress";
 #[derive(Clone, Default)]
 pub struct GenerationControl {
     stop_requested: Arc<AtomicBool>,
+}
+
+#[derive(Default)]
+pub struct AppState {
+    account_store_lock: Mutex<()>,
 }
 
 impl GenerationControl {
@@ -57,7 +72,7 @@ struct AppPaths {
 }
 
 #[derive(Debug)]
-struct StoredAccount {
+struct DiscoveredCodexAccount {
     email: String,
     created_at: String,
 }
@@ -100,6 +115,57 @@ struct ImportScriptSummary {
     skipped_existing: Vec<String>,
     #[serde(default)]
     failed_files: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SshServer {
+    pub id: String,
+    pub name: String,
+    pub host: String,
+    pub port: u16,
+    pub username: String,
+    pub auth_method: String,
+    pub key_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SshServersState {
+    #[serde(default = "default_ssh_servers_version")]
+    version: u8,
+    #[serde(default)]
+    servers: Vec<SshServer>,
+}
+
+impl Default for SshServersState {
+    fn default() -> Self {
+        Self {
+            version: default_ssh_servers_version(),
+            servers: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+struct PendingSshHost {
+    aliases: Vec<String>,
+    host_name: Option<String>,
+    user: Option<String>,
+    port: Option<u16>,
+    identity_file: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CodexSession {
+    pub pid: u32,
+    pub session_id: String,
+    pub tty: String,
+}
+
+#[derive(Debug)]
+struct ParsedCodexProcess {
+    pid: u32,
+    tty: String,
+    command: String,
 }
 
 #[tauri::command]
@@ -175,7 +241,7 @@ pub async fn start_generation(
                 let imported = track_generated_account(&mut state, &account.email);
                 save_state(&state_path, &state).await?;
 
-                let emitted_account = Account {
+                let emitted_account = AvailableAccount {
                     email: account.email.clone(),
                     created_at: account.created_at.clone(),
                     imported,
@@ -211,7 +277,7 @@ pub fn stop_generation(control: State<'_, GenerationControl>) -> AppResult<()> {
 }
 
 #[tauri::command]
-pub async fn get_accounts(app: AppHandle) -> AppResult<Vec<Account>> {
+pub async fn get_accounts(app: AppHandle) -> AppResult<Vec<AvailableAccount>> {
     let paths = app_paths(&app)?;
     let state_path = paths.data_dir.join("accounts_state.json");
     ensure_state_file(&state_path).await?;
@@ -223,10 +289,10 @@ pub async fn get_accounts(app: AppHandle) -> AppResult<Vec<Account>> {
         .map(|entry| (normalize_email(&entry.email), entry.imported))
         .collect();
 
-    let mut accounts: Vec<Account> = read_codex_accounts(&paths)
+    let mut accounts: Vec<AvailableAccount> = read_codex_accounts(&paths)
         .await?
         .into_iter()
-        .map(|account| Account {
+        .map(|account| AvailableAccount {
             imported: imported_lookup
                 .get(&account.email)
                 .copied()
@@ -327,6 +393,534 @@ pub async fn import_accounts(app: AppHandle, emails: Vec<String>) -> AppResult<I
     })
 }
 
+#[tauri::command]
+pub async fn list_accounts(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<Account>, String> {
+    let _guard = state
+        .account_store_lock
+        .lock()
+        .map_err(|_| "账号存储锁已损坏".to_string())?;
+    let store = load_accounts_store(&app)?;
+    let current_account_id = current_auth_account_id();
+    let mut accounts: Vec<Account> = store
+        .accounts
+        .iter()
+        .map(|account| account.to_account(current_account_id.as_deref()))
+        .collect();
+
+    accounts.sort_by(|left, right| {
+        right
+            .is_current
+            .cmp(&left.is_current)
+            .then_with(|| right.updated_at.cmp(&left.updated_at))
+            .then_with(|| left.label.cmp(&right.label))
+    });
+    Ok(accounts)
+}
+
+#[tauri::command]
+pub async fn add_account(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    label: String,
+) -> Result<Account, String> {
+    let auth_json = read_current_codex_auth()?;
+    let extracted = extract_auth(&auth_json)?;
+    let usage_update = resolve_usage_update(
+        &auth_json,
+        extracted.email.clone(),
+        extracted.plan_type.clone(),
+    )
+    .await;
+
+    let now = now_unix_seconds();
+    let default_label = extracted
+        .email
+        .clone()
+        .unwrap_or_else(|| format!("Codex {}", short_account(&extracted.account_id)));
+    let normalized_label = normalize_account_label(&label, &default_label);
+    let current_account_id = current_auth_account_id();
+
+    let _guard = state
+        .account_store_lock
+        .lock()
+        .map_err(|_| "账号存储锁已损坏".to_string())?;
+    let mut store = load_accounts_store(&app)?;
+
+    let account = if let Some(existing) = store
+        .accounts
+        .iter_mut()
+        .find(|account| account.account_id == extracted.account_id)
+    {
+        existing.label = normalized_label;
+        existing.email = usage_update
+            .email
+            .clone()
+            .or(extracted.email.clone())
+            .or(existing.email.clone());
+        existing.plan_type = usage_update
+            .plan_type
+            .clone()
+            .or(extracted.plan_type.clone())
+            .or(existing.plan_type.clone());
+        existing.auth_json = usage_update.auth_json.clone();
+        existing.updated_at = now;
+        if let Some(usage) = usage_update.usage.clone() {
+            existing.usage = Some(usage);
+            existing.usage_error = None;
+        } else {
+            existing.usage_error = usage_update.usage_error.clone();
+        }
+        existing.to_account(current_account_id.as_deref())
+    } else {
+        let stored = ManagedStoredAccount {
+            id: uuid::Uuid::new_v4().to_string(),
+            label: normalized_label,
+            email: usage_update.email.clone().or(extracted.email.clone()),
+            account_id: extracted.account_id.clone(),
+            plan_type: usage_update
+                .plan_type
+                .clone()
+                .or(extracted.plan_type.clone()),
+            auth_json: usage_update.auth_json.clone(),
+            added_at: now,
+            updated_at: now,
+            usage: usage_update.usage.clone(),
+            usage_error: usage_update.usage_error.clone(),
+        };
+        let account = stored.to_account(current_account_id.as_deref());
+        store.accounts.push(stored);
+        account
+    };
+
+    save_accounts_store(&app, &store)?;
+    Ok(account)
+}
+
+#[tauri::command]
+pub async fn delete_account(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<(), String> {
+    let _guard = state
+        .account_store_lock
+        .lock()
+        .map_err(|_| "账号存储锁已损坏".to_string())?;
+    let mut store = load_accounts_store(&app)?;
+    let original_len = store.accounts.len();
+    store.accounts.retain(|account| account.id != id);
+
+    if store.accounts.len() == original_len {
+        return Err("未找到要删除的账号".to_string());
+    }
+
+    save_accounts_store(&app, &store)
+}
+
+#[tauri::command]
+pub async fn switch_account(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+    auto_resume: bool,
+) -> Result<(), String> {
+    let account = {
+        let _guard = state
+            .account_store_lock
+            .lock()
+            .map_err(|_| "账号存储锁已损坏".to_string())?;
+        let store = load_accounts_store(&app)?;
+        store
+            .accounts
+            .into_iter()
+            .find(|account| account.id == id)
+            .ok_or_else(|| "找不到要切换的账号".to_string())?
+    };
+
+    write_active_codex_auth(&account.auth_json)?;
+
+    if auto_resume {
+        terminate_and_resume_sessions().await?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn refresh_account_usage(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<Account, String> {
+    let stored_account = {
+        let _guard = state
+            .account_store_lock
+            .lock()
+            .map_err(|_| "账号存储锁已损坏".to_string())?;
+        let store = load_accounts_store(&app)?;
+        store
+            .accounts
+            .into_iter()
+            .find(|account| account.id == id)
+            .ok_or_else(|| "未找到要刷新的账号".to_string())?
+    };
+
+    let auth_json = current_auth_json_for_account(&stored_account.account_id)
+        .unwrap_or_else(|| stored_account.auth_json.clone());
+    let usage_update = resolve_usage_update(
+        &auth_json,
+        stored_account.email.clone(),
+        stored_account.plan_type.clone(),
+    )
+    .await;
+    let current_account_id = current_auth_account_id();
+
+    let _guard = state
+        .account_store_lock
+        .lock()
+        .map_err(|_| "账号存储锁已损坏".to_string())?;
+    let mut store = load_accounts_store(&app)?;
+    let account = store
+        .accounts
+        .iter_mut()
+        .find(|account| account.id == id)
+        .ok_or_else(|| "账号已被删除，无法刷新".to_string())?;
+
+    account.updated_at = now_unix_seconds();
+    account.auth_json = usage_update.auth_json.clone();
+    account.email = usage_update.email.clone().or(account.email.clone());
+    account.plan_type = usage_update.plan_type.clone().or(account.plan_type.clone());
+    if let Some(usage) = usage_update.usage.clone() {
+        account.usage = Some(usage);
+        account.usage_error = None;
+    } else {
+        account.usage_error = usage_update.usage_error.clone();
+    }
+
+    let account = account.to_account(current_account_id.as_deref());
+    save_accounts_store(&app, &store)?;
+    Ok(account)
+}
+
+#[tauri::command]
+pub async fn get_current_account(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Option<Account>, String> {
+    let current_account_id = match current_auth_account_id() {
+        Some(account_id) => account_id,
+        None => return Ok(None),
+    };
+
+    let _guard = state
+        .account_store_lock
+        .lock()
+        .map_err(|_| "账号存储锁已损坏".to_string())?;
+    let store = load_accounts_store(&app)?;
+    Ok(store
+        .accounts
+        .iter()
+        .find(|account| account.account_id == current_account_id)
+        .map(|account| account.to_account(Some(&current_account_id))))
+}
+
+#[tauri::command]
+pub async fn list_ssh_servers(app: AppHandle) -> Result<Vec<SshServer>, String> {
+    let paths = app_paths(&app).map_err(|error| error.to_string())?;
+    let state = load_ssh_servers_state(&paths)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(sort_ssh_servers(state.servers))
+}
+
+#[tauri::command]
+pub async fn add_ssh_server(app: AppHandle, server: SshServer) -> Result<String, String> {
+    let paths = app_paths(&app).map_err(|error| error.to_string())?;
+    let mut state = load_ssh_servers_state(&paths)
+        .await
+        .map_err(|error| error.to_string())?;
+    let mut normalized = normalize_ssh_server(server)?;
+
+    if let Some(existing) = state
+        .servers
+        .iter()
+        .find(|item| same_ssh_server(item, &normalized))
+    {
+        return Ok(existing.id.clone());
+    }
+
+    if state
+        .servers
+        .iter()
+        .any(|item| item.name.eq_ignore_ascii_case(&normalized.name))
+    {
+        return Err(format!("服务器名称已存在: {}", normalized.name));
+    }
+
+    normalized.id = unique_ssh_server_id(&state.servers, Some(&normalized.id));
+    let created_id = normalized.id.clone();
+    state.servers.push(normalized);
+    state.servers = sort_ssh_servers(state.servers);
+    save_ssh_servers_state(&paths, &state)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    Ok(created_id)
+}
+
+#[tauri::command]
+pub async fn delete_ssh_server(app: AppHandle, id: String) -> Result<(), String> {
+    let paths = app_paths(&app).map_err(|error| error.to_string())?;
+    let mut state = load_ssh_servers_state(&paths)
+        .await
+        .map_err(|error| error.to_string())?;
+    let target_id = id.trim();
+    let original_len = state.servers.len();
+    state.servers.retain(|server| server.id != target_id);
+
+    if state.servers.len() == original_len {
+        return Err(format!("未找到服务器: {target_id}"));
+    }
+
+    save_ssh_servers_state(&paths, &state)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn parse_ssh_config() -> Result<Vec<SshServer>, String> {
+    let config_path = ssh_config_path()?;
+    if !fs::try_exists(&config_path)
+        .await
+        .map_err(|error| format!("无法检查 SSH config 文件: {error}"))?
+    {
+        return Err(format!("未找到 SSH config 文件: {}", config_path.display()));
+    }
+
+    let content = fs::read_to_string(&config_path)
+        .await
+        .map_err(|error| format!("读取 SSH config 失败: {error}"))?;
+    Ok(parse_ssh_config_content(&content))
+}
+
+#[tauri::command]
+pub async fn find_codex_sessions() -> Result<Vec<CodexSession>, String> {
+    let output = Command::new("ps")
+        .args(["-ax", "-o", "pid=,tty=,command="])
+        .output()
+        .await
+        .map_err(|error| format!("执行 ps 失败: {error}"))?;
+
+    if !output.status.success() {
+        return Err(format!("执行 ps 失败: {}", command_output_summary(&output)));
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut sessions = Vec::new();
+    let mut seen_pids = HashSet::new();
+
+    for line in stdout.lines() {
+        let Some(process) = parse_native_codex_resume_process(line) else {
+            continue;
+        };
+
+        if !seen_pids.insert(process.pid) {
+            continue;
+        }
+
+        let session_id = extract_session_from_command(&process.command)
+            .or_else(|| query_session_from_sqlite(process.pid).ok().flatten());
+
+        let Some(session_id) = session_id else {
+            continue;
+        };
+
+        sessions.push(CodexSession {
+            pid: process.pid,
+            session_id,
+            tty: process.tty,
+        });
+    }
+
+    sessions.sort_by(|left, right| {
+        left.tty
+            .cmp(&right.tty)
+            .then_with(|| left.pid.cmp(&right.pid))
+    });
+    Ok(sessions)
+}
+
+#[tauri::command]
+pub async fn terminate_and_resume_sessions() -> Result<Vec<String>, String> {
+    let sessions = find_codex_sessions().await?;
+    let mut resumed = Vec::with_capacity(sessions.len());
+
+    for session in sessions {
+        terminate_process(session.pid).await?;
+        std::thread::sleep(Duration::from_millis(250));
+        run_terminal_resume_script(&session).await?;
+        resumed.push(session.session_id);
+    }
+
+    Ok(resumed)
+}
+
+#[derive(Debug, Clone)]
+struct UsageUpdate {
+    auth_json: Value,
+    email: Option<String>,
+    plan_type: Option<String>,
+    usage: Option<crate::models::Usage>,
+    usage_error: Option<String>,
+}
+
+async fn resolve_usage_update(
+    auth_json: &Value,
+    fallback_email: Option<String>,
+    fallback_plan_type: Option<String>,
+) -> UsageUpdate {
+    let mut working_auth_json = auth_json.clone();
+    let mut extracted = match extract_auth(&working_auth_json) {
+        Ok(auth) => auth,
+        Err(err) => {
+            return UsageUpdate {
+                auth_json: working_auth_json,
+                email: fallback_email,
+                plan_type: fallback_plan_type,
+                usage: None,
+                usage_error: Some(err),
+            };
+        }
+    };
+
+    let mut refresh_error = None;
+    let mut fetch_result = fetch_usage(&extracted.access_token, &extracted.account_id).await;
+
+    if should_retry_with_token_refresh(&fetch_result) {
+        match refresh_chatgpt_auth_tokens(&working_auth_json).await {
+            Ok(refreshed) => {
+                working_auth_json = refreshed;
+                match extract_auth(&working_auth_json) {
+                    Ok(refreshed_auth) => {
+                        extracted = refreshed_auth;
+                        fetch_result =
+                            fetch_usage(&extracted.access_token, &extracted.account_id).await;
+                    }
+                    Err(err) => {
+                        return UsageUpdate {
+                            auth_json: working_auth_json,
+                            email: extracted.email.or(fallback_email),
+                            plan_type: extracted.plan_type.or(fallback_plan_type),
+                            usage: None,
+                            usage_error: Some(err),
+                        };
+                    }
+                }
+            }
+            Err(err) => {
+                refresh_error = Some(err);
+            }
+        }
+    }
+
+    match fetch_result {
+        Ok(fetched) => UsageUpdate {
+            auth_json: working_auth_json,
+            email: extracted.email.or(fallback_email),
+            plan_type: fetched
+                .plan_type
+                .or(extracted.plan_type)
+                .or(fallback_plan_type),
+            usage: Some(fetched.usage),
+            usage_error: None,
+        },
+        Err(err) => UsageUpdate {
+            auth_json: working_auth_json,
+            email: extracted.email.or(fallback_email),
+            plan_type: extracted.plan_type.or(fallback_plan_type),
+            usage: None,
+            usage_error: Some(match refresh_error {
+                Some(refresh_err) => format!("{err} | 令牌刷新失败: {refresh_err}"),
+                None => err,
+            }),
+        },
+    }
+}
+
+fn should_retry_with_token_refresh(fetch_result: &Result<FetchedUsage, String>) -> bool {
+    match fetch_result {
+        Ok(snapshot) => snapshot.plan_type.is_none(),
+        Err(err) => {
+            let normalized = err.to_ascii_lowercase();
+            normalized.contains("401")
+                || normalized.contains("unauthorized")
+                || normalized.contains("invalid_token")
+                || normalized.contains("expired")
+        }
+    }
+}
+
+fn current_auth_json_for_account(account_id: &str) -> Option<Value> {
+    let auth_json = read_current_codex_auth_optional().ok().flatten()?;
+    let extracted = extract_auth(&auth_json).ok()?;
+    if extracted.account_id == account_id {
+        Some(auth_json)
+    } else {
+        None
+    }
+}
+
+fn normalize_account_label(label: &str, fallback: &str) -> String {
+    let trimmed = label.trim();
+    if trimmed.is_empty() {
+        fallback.to_string()
+    } else {
+        trimmed.to_string()
+    }
+}
+
+fn load_accounts_store(app: &AppHandle) -> Result<AccountsStore, String> {
+    let path = account_store_path(app)?;
+    if !path.exists() {
+        return Ok(AccountsStore::default());
+    }
+
+    let raw = stdfs::read_to_string(&path)
+        .map_err(|e| format!("读取账号存储文件失败 {}: {e}", path.display()))?;
+    if raw.trim().is_empty() {
+        return Ok(AccountsStore::default());
+    }
+
+    serde_json::from_str(&raw).map_err(|e| format!("解析账号存储文件失败 {}: {e}", path.display()))
+}
+
+fn save_accounts_store(app: &AppHandle, store: &AccountsStore) -> Result<(), String> {
+    let path = account_store_path(app)?;
+    let parent = path
+        .parent()
+        .ok_or_else(|| format!("无法解析账号存储目录 {}", path.display()))?;
+    stdfs::create_dir_all(parent)
+        .map_err(|e| format!("创建账号存储目录失败 {}: {e}", parent.display()))?;
+
+    let serialized =
+        serde_json::to_string_pretty(store).map_err(|e| format!("序列化账号存储失败: {e}"))?;
+    stdfs::write(&path, serialized)
+        .map_err(|e| format!("写入账号存储文件失败 {}: {e}", path.display()))?;
+    set_private_permissions(&path);
+    Ok(())
+}
+
+fn account_store_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("无法获取应用数据目录: {e}"))?;
+    Ok(data_dir.join("accounts.json"))
+}
+
 fn app_paths(app: &AppHandle) -> AppResult<AppPaths> {
     if cfg!(debug_assertions) {
         let workspace_root = project_root()?;
@@ -391,6 +985,486 @@ async fn save_state(path: &Path, state: &AccountsState) -> AppResult<()> {
     let content = serde_json::to_vec_pretty(state)?;
     fs::write(path, content).await?;
     Ok(())
+}
+
+fn default_ssh_servers_version() -> u8 {
+    1
+}
+
+fn ssh_servers_path(paths: &AppPaths) -> PathBuf {
+    paths.data_dir.join("servers.json")
+}
+
+async fn ensure_ssh_servers_file(path: &Path) -> AppResult<()> {
+    if fs::try_exists(path).await? {
+        return Ok(());
+    }
+
+    let state = SshServersState::default();
+    save_ssh_servers_file(path, &state).await
+}
+
+async fn load_ssh_servers_state(paths: &AppPaths) -> AppResult<SshServersState> {
+    let path = ssh_servers_path(paths);
+    ensure_ssh_servers_file(&path).await?;
+    let content = fs::read_to_string(&path).await?;
+    if content.trim().is_empty() {
+        return Ok(SshServersState::default());
+    }
+
+    let mut state: SshServersState = serde_json::from_str(&content)?;
+    if state.version == 0 {
+        state.version = default_ssh_servers_version();
+    }
+    state.servers = sort_ssh_servers(state.servers);
+
+    Ok(state)
+}
+
+async fn save_ssh_servers_state(paths: &AppPaths, state: &SshServersState) -> AppResult<()> {
+    let path = ssh_servers_path(paths);
+    save_ssh_servers_file(&path, state).await
+}
+
+async fn save_ssh_servers_file(path: &Path, state: &SshServersState) -> AppResult<()> {
+    if let Some(parent) = path.parent() {
+        ensure_dir(parent).await?;
+    }
+
+    let content = serde_json::to_vec_pretty(state)?;
+    fs::write(path, content).await?;
+    Ok(())
+}
+
+fn sort_ssh_servers(mut servers: Vec<SshServer>) -> Vec<SshServer> {
+    servers.sort_by(|left, right| {
+        left.name
+            .to_ascii_lowercase()
+            .cmp(&right.name.to_ascii_lowercase())
+            .then_with(|| left.host.cmp(&right.host))
+            .then_with(|| left.username.cmp(&right.username))
+    });
+    servers
+}
+
+fn same_ssh_server(left: &SshServer, right: &SshServer) -> bool {
+    left.name.eq_ignore_ascii_case(&right.name)
+        && left.host.eq_ignore_ascii_case(&right.host)
+        && left.port == right.port
+        && left.username == right.username
+        && left.auth_method == right.auth_method
+        && left.key_path == right.key_path
+}
+
+fn normalize_ssh_server(server: SshServer) -> Result<SshServer, String> {
+    let name = server.name.trim().to_string();
+    if name.is_empty() {
+        return Err("服务器名称不能为空".to_string());
+    }
+
+    let host = server.host.trim().to_string();
+    if host.is_empty() {
+        return Err("服务器地址不能为空".to_string());
+    }
+
+    let username = server.username.trim().to_string();
+    if username.is_empty() {
+        return Err("用户名不能为空".to_string());
+    }
+
+    let auth_method = server.auth_method.trim().to_ascii_lowercase();
+    if auth_method != "key" && auth_method != "password" {
+        return Err("认证方式必须是 key 或 password".to_string());
+    }
+
+    let key_path = if auth_method == "key" {
+        let key_path = server.key_path.unwrap_or_default().trim().to_string();
+        if key_path.is_empty() {
+            return Err("密钥认证需要提供密钥路径".to_string());
+        }
+        Some(expand_home_path(&key_path))
+    } else {
+        None
+    };
+
+    Ok(SshServer {
+        id: server.id.trim().to_string(),
+        name,
+        host,
+        port: if server.port == 0 { 22 } else { server.port },
+        username,
+        auth_method,
+        key_path,
+    })
+}
+
+fn unique_ssh_server_id(existing: &[SshServer], preferred: Option<&str>) -> String {
+    let preferred = preferred.unwrap_or_default().trim();
+    if !preferred.is_empty() && existing.iter().all(|server| server.id != preferred) {
+        return preferred.to_string();
+    }
+
+    loop {
+        let candidate = generate_ssh_server_id();
+        if existing.iter().all(|server| server.id != candidate) {
+            return candidate;
+        }
+    }
+}
+
+fn generate_ssh_server_id() -> String {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    format!("ssh-{nanos:x}")
+}
+
+fn parse_ssh_config_content(content: &str) -> Vec<SshServer> {
+    let mut servers = Vec::new();
+    let mut current = PendingSshHost::default();
+
+    for raw_line in content.lines() {
+        let line = raw_line.split('#').next().unwrap_or_default().trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        let mut parts = line.splitn(2, char::is_whitespace);
+        let keyword = parts.next().unwrap_or_default().trim().to_ascii_lowercase();
+        let value = parts.next().unwrap_or_default().trim();
+
+        match keyword.as_str() {
+            "host" => {
+                push_pending_ssh_hosts(&mut current, &mut servers);
+                current.aliases = value
+                    .split_whitespace()
+                    .map(|alias| alias.trim().to_string())
+                    .filter(|alias| !alias.is_empty())
+                    .collect();
+            }
+            "match" => {
+                push_pending_ssh_hosts(&mut current, &mut servers);
+            }
+            "hostname" if !current.aliases.is_empty() => {
+                current.host_name = Some(unquote_ssh_value(value));
+            }
+            "user" if !current.aliases.is_empty() => {
+                current.user = Some(unquote_ssh_value(value));
+            }
+            "port" if !current.aliases.is_empty() => {
+                current.port = value.parse::<u16>().ok();
+            }
+            "identityfile" if !current.aliases.is_empty() => {
+                let identity_file = unquote_ssh_value(value);
+                if !identity_file.is_empty() {
+                    current.identity_file = Some(expand_home_path(&identity_file));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    push_pending_ssh_hosts(&mut current, &mut servers);
+    dedupe_ssh_servers(sort_ssh_servers(servers))
+}
+
+fn push_pending_ssh_hosts(pending: &mut PendingSshHost, servers: &mut Vec<SshServer>) {
+    if pending.aliases.is_empty() {
+        *pending = PendingSshHost::default();
+        return;
+    }
+
+    let host_name = pending.host_name.clone();
+    let username = pending.user.clone().unwrap_or_else(default_ssh_username);
+    let port = pending.port.unwrap_or(22);
+    let key_path = pending.identity_file.clone();
+    let auth_method = if key_path.is_some() {
+        "key"
+    } else {
+        "password"
+    };
+
+    for alias in &pending.aliases {
+        if alias.contains('*') || alias.contains('?') || alias.starts_with('!') {
+            continue;
+        }
+
+        let trimmed_alias = alias.trim();
+        if trimmed_alias.is_empty() {
+            continue;
+        }
+
+        servers.push(SshServer {
+            id: String::new(),
+            name: trimmed_alias.to_string(),
+            host: host_name
+                .clone()
+                .unwrap_or_else(|| trimmed_alias.to_string()),
+            port,
+            username: username.clone(),
+            auth_method: auth_method.to_string(),
+            key_path: key_path.clone(),
+        });
+    }
+
+    *pending = PendingSshHost::default();
+}
+
+fn dedupe_ssh_servers(servers: Vec<SshServer>) -> Vec<SshServer> {
+    let mut deduped = Vec::new();
+
+    for server in servers {
+        if let Some(existing) = deduped
+            .iter_mut()
+            .find(|item: &&mut SshServer| item.name.eq_ignore_ascii_case(&server.name))
+        {
+            *existing = server;
+        } else {
+            deduped.push(server);
+        }
+    }
+
+    deduped
+}
+
+fn unquote_ssh_value(value: &str) -> String {
+    value
+        .trim()
+        .trim_matches('"')
+        .trim_matches('\'')
+        .to_string()
+}
+
+fn default_ssh_username() -> String {
+    env::var("USER")
+        .or_else(|_| env::var("USERNAME"))
+        .unwrap_or_default()
+}
+
+fn ssh_config_path() -> Result<PathBuf, String> {
+    let home_dir = home_dir().ok_or_else(|| "无法解析用户主目录".to_string())?;
+    Ok(home_dir.join(".ssh").join("config"))
+}
+
+fn codex_state_db_path() -> Result<PathBuf, String> {
+    let codex_dir = home_dir()
+        .ok_or_else(|| "无法解析用户主目录".to_string())?
+        .join(".codex");
+    let entries =
+        std::fs::read_dir(&codex_dir).map_err(|error| format!("读取 Codex 目录失败: {error}"))?;
+    let mut candidates = Vec::new();
+
+    for entry in entries {
+        let entry = entry.map_err(|error| format!("读取 Codex 目录失败: {error}"))?;
+        let path = entry.path();
+        if !path.is_file() {
+            continue;
+        }
+
+        let Some(name) = path.file_name().and_then(OsStr::to_str) else {
+            continue;
+        };
+
+        if !name.starts_with("state") || !name.ends_with(".sqlite") {
+            continue;
+        }
+
+        let modified = entry
+            .metadata()
+            .ok()
+            .and_then(|metadata| metadata.modified().ok())
+            .unwrap_or(SystemTime::UNIX_EPOCH);
+        candidates.push((modified, path));
+    }
+
+    candidates
+        .into_iter()
+        .max_by_key(|(modified, path)| (*modified, path.clone()))
+        .map(|(_, path)| path)
+        .ok_or_else(|| "未找到 Codex state SQLite 文件".to_string())
+}
+
+fn parse_native_codex_resume_process(line: &str) -> Option<ParsedCodexProcess> {
+    let mut parts = line.split_whitespace();
+    let pid = parts.next()?.parse::<u32>().ok()?;
+    let tty = parts.next()?.trim().to_string();
+    if tty.is_empty() || tty == "??" {
+        return None;
+    }
+
+    let command_parts: Vec<&str> = parts.collect();
+    if command_parts.len() < 2 {
+        return None;
+    }
+
+    let executable = command_parts.first().copied()?;
+    let subcommand = command_parts.get(1).copied()?;
+
+    if !is_codex_executable(executable) || subcommand != "resume" {
+        return None;
+    }
+
+    Some(ParsedCodexProcess {
+        pid,
+        tty,
+        command: command_parts.join(" "),
+    })
+}
+
+fn is_codex_executable(executable: &str) -> bool {
+    Path::new(executable)
+        .file_name()
+        .and_then(OsStr::to_str)
+        .map(|name| name == "codex")
+        .unwrap_or(false)
+}
+
+fn extract_session_from_command(command: &str) -> Option<String> {
+    let mut seen_resume = false;
+
+    for token in command.split_whitespace() {
+        if seen_resume && looks_like_session_id(token) {
+            return Some(token.to_string());
+        }
+        if token == "resume" {
+            seen_resume = true;
+        }
+    }
+
+    None
+}
+
+fn looks_like_session_id(candidate: &str) -> bool {
+    const HYPHEN_POSITIONS: [usize; 4] = [8, 13, 18, 23];
+
+    if candidate.len() != 36 {
+        return false;
+    }
+
+    candidate.chars().enumerate().all(|(index, ch)| {
+        if HYPHEN_POSITIONS.contains(&index) {
+            ch == '-'
+        } else {
+            ch.is_ascii_hexdigit()
+        }
+    })
+}
+
+fn query_session_from_sqlite(pid: u32) -> Result<Option<String>, String> {
+    let db_path = codex_state_db_path()?;
+    let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
+        .map_err(|error| format!("打开 Codex state 数据库失败: {error}"))?;
+    let pattern = format!("pid:{pid}:%");
+
+    let session_id: Option<String> = conn
+        .query_row(
+            "SELECT thread_id
+             FROM logs
+             WHERE process_uuid LIKE ?1
+               AND thread_id IS NOT NULL
+               AND thread_id != ''
+             ORDER BY id DESC
+             LIMIT 1",
+            [&pattern],
+            |row| row.get(0),
+        )
+        .optional()
+        .map_err(|error| format!("查询 Codex session 失败: {error}"))?;
+
+    Ok(session_id.filter(|id| looks_like_session_id(id)))
+}
+
+async fn terminate_process(pid: u32) -> Result<(), String> {
+    let output = Command::new("kill")
+        .arg("-TERM")
+        .arg(pid.to_string())
+        .output()
+        .await
+        .map_err(|error| format!("终止 Codex 进程失败: {error}"))?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    if stderr.contains("No such process") {
+        return Ok(());
+    }
+
+    Err(format!(
+        "终止 Codex 进程 {pid} 失败: {}",
+        command_output_summary(&output)
+    ))
+}
+
+async fn run_terminal_resume_script(session: &CodexSession) -> Result<(), String> {
+    let tty = normalize_terminal_tty(&session.tty);
+    let resume_command = format!("codex resume {}", session.session_id);
+    let script = format!(
+        r#"tell application "Terminal"
+    set targetTty to "{tty}"
+    set resumeCommand to "{resume_command}"
+    repeat with targetWindow in windows
+        repeat with targetTab in tabs of targetWindow
+            if tty of targetTab is targetTty then
+                do script resumeCommand in targetTab
+                activate
+                return targetTty
+            end if
+        end repeat
+    end repeat
+end tell
+error "未找到对应的 Terminal 标签页: {tty}""#
+    );
+
+    let output = Command::new("osascript")
+        .arg("-e")
+        .arg(script)
+        .output()
+        .await
+        .map_err(|error| format!("执行 AppleScript 失败: {error}"))?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    Err(format!(
+        "恢复 Codex session {} 失败: {}",
+        session.session_id,
+        command_output_summary(&output)
+    ))
+}
+
+fn normalize_terminal_tty(tty: &str) -> String {
+    if tty.starts_with("/dev/") {
+        tty.to_string()
+    } else {
+        format!("/dev/{tty}")
+    }
+}
+
+fn expand_home_path(path: &str) -> String {
+    if let Some(stripped) = path.strip_prefix("~/") {
+        if let Some(home_dir) = home_dir() {
+            return home_dir.join(stripped).to_string_lossy().into_owned();
+        }
+    }
+
+    path.to_string()
+}
+
+fn home_dir() -> Option<PathBuf> {
+    env::var_os("HOME")
+        .map(PathBuf::from)
+        .or_else(|| env::var_os("USERPROFILE").map(PathBuf::from))
+        .or_else(|| {
+            let drive = env::var_os("HOMEDRIVE")?;
+            let path = env::var_os("HOMEPATH")?;
+            let mut home = PathBuf::from(drive);
+            home.push(path);
+            Some(home)
+        })
 }
 
 async fn list_json_files(dir: &Path, prefix: Option<&str>) -> AppResult<Vec<PathBuf>> {
@@ -574,7 +1648,7 @@ async fn convert_generated_token(
     })
 }
 
-async fn read_codex_accounts(paths: &AppPaths) -> AppResult<Vec<StoredAccount>> {
+async fn read_codex_accounts(paths: &AppPaths) -> AppResult<Vec<DiscoveredCodexAccount>> {
     let codex_tokens_dir = paths.data_dir.join("codex_tokens");
     ensure_dir(&codex_tokens_dir).await?;
 
@@ -592,7 +1666,7 @@ async fn read_codex_accounts(paths: &AppPaths) -> AppResult<Vec<StoredAccount>> 
     Ok(accounts)
 }
 
-async fn read_single_codex_account(path: &Path) -> AppResult<Option<StoredAccount>> {
+async fn read_single_codex_account(path: &Path) -> AppResult<Option<DiscoveredCodexAccount>> {
     let content = fs::read_to_string(path).await?;
     let token_file: CodexTokenFile = serde_json::from_str(&content)?;
 
@@ -611,7 +1685,7 @@ async fn read_single_codex_account(path: &Path) -> AppResult<Option<StoredAccoun
         token_file.last_refresh
     };
 
-    Ok(Some(StoredAccount { email, created_at }))
+    Ok(Some(DiscoveredCodexAccount { email, created_at }))
 }
 
 fn extract_email_from_id_token(id_token: &str) -> AppResult<String> {
@@ -703,7 +1777,7 @@ fn emit_progress(
     current: u32,
     total: u32,
     email: String,
-    account: Option<Account>,
+    account: Option<AvailableAccount>,
 ) {
     if let Err(error) = app.emit(
         GENERATION_PROGRESS_EVENT,
@@ -805,4 +1879,107 @@ fn now_rfc3339() -> String {
 
 fn system_time_to_rfc3339(time: SystemTime) -> String {
     DateTime::<Utc>::from(time).to_rfc3339_opts(SecondsFormat::Secs, true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_basic_ssh_config_entries() {
+        let config = r#"
+            Host web-prod
+              HostName 10.0.0.8
+              User ubuntu
+              Port 2222
+              IdentityFile ~/.ssh/id_ed25519
+
+            Host db-prod
+              HostName db.internal
+              User admin
+        "#;
+
+        let servers = parse_ssh_config_content(config);
+        assert_eq!(servers.len(), 2);
+
+        let db = servers
+            .iter()
+            .find(|server| server.name == "db-prod")
+            .unwrap();
+        assert_eq!(db.host, "db.internal");
+        assert_eq!(db.username, "admin");
+        assert_eq!(db.port, 22);
+        assert_eq!(db.auth_method, "password");
+        assert_eq!(db.key_path, None);
+
+        let web = servers
+            .iter()
+            .find(|server| server.name == "web-prod")
+            .unwrap();
+        assert_eq!(web.host, "10.0.0.8");
+        assert_eq!(web.username, "ubuntu");
+        assert_eq!(web.port, 2222);
+        assert_eq!(web.auth_method, "key");
+        assert!(web
+            .key_path
+            .as_deref()
+            .unwrap_or_default()
+            .ends_with(".ssh/id_ed25519"));
+    }
+
+    #[test]
+    fn skips_wildcards_and_expands_multi_host_entries() {
+        let config = r#"
+            Host *.internal
+              User ignored
+
+            Host api-stage api-canary
+              HostName 172.16.0.20
+              User deploy
+              Port 2200
+        "#;
+
+        let servers = parse_ssh_config_content(config);
+        assert_eq!(servers.len(), 2);
+        assert!(servers.iter().all(|server| server.name != "*.internal"));
+        assert!(servers.iter().any(|server| server.name == "api-stage"));
+        assert!(servers.iter().any(|server| server.name == "api-canary"));
+        assert!(servers.iter().all(|server| server.host == "172.16.0.20"));
+        assert!(servers.iter().all(|server| server.username == "deploy"));
+        assert!(servers.iter().all(|server| server.port == 2200));
+    }
+
+    #[test]
+    fn extracts_session_id_from_resume_command() {
+        let command = "/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex resume 019ccb6b-a99e-7293-8c80-a0613c5bc3ce";
+        let session_id = extract_session_from_command(command);
+        assert_eq!(
+            session_id.as_deref(),
+            Some("019ccb6b-a99e-7293-8c80-a0613c5bc3ce")
+        );
+    }
+
+    #[test]
+    fn parses_native_codex_resume_process_line() {
+        let line = "51943 ttys018 /opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex resume";
+        let process = parse_native_codex_resume_process(line).unwrap();
+        assert_eq!(process.pid, 51943);
+        assert_eq!(process.tty, "ttys018");
+        assert_eq!(
+            process.command,
+            "/opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex resume"
+        );
+    }
+
+    #[test]
+    fn ignores_non_resume_codex_processes() {
+        assert!(parse_native_codex_resume_process(
+            "59385 ttys003 /opt/homebrew/lib/node_modules/@openai/codex/node_modules/@openai/codex-darwin-arm64/vendor/aarch64-apple-darwin/codex/codex mcp-server"
+        )
+        .is_none());
+        assert!(parse_native_codex_resume_process(
+            "51941 ttys018 node /opt/homebrew/bin/codex resume 019ccb6b-a99e-7293-8c80-a0613c5bc3ce"
+        )
+        .is_none());
+    }
 }

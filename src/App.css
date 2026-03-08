@@ -241,6 +241,10 @@ button {
   margin-top: 1rem;
 }
 
+.ssh-panel {
+  margin-top: 1rem;
+}
+
 .panel-heading {
   display: grid;
   gap: 0.5rem;
@@ -307,6 +311,19 @@ button {
 .field-input input::placeholder {
   color: var(--muted);
   opacity: 0.5;
+}
+
+.field-input select {
+  width: 100%;
+  min-width: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  color: var(--text);
+  background: transparent;
+  font-size: 1rem;
+  font-weight: 500;
+  appearance: none;
 }
 
 .field-suffix {
@@ -703,6 +720,149 @@ button {
   color: var(--muted);
 }
 
+.ssh-layout {
+  display: grid;
+  grid-template-columns: minmax(320px, 0.95fr) minmax(0, 1.05fr);
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.ssh-form,
+.ssh-list-card {
+  min-width: 0;
+  padding: 1rem;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.ssh-form-grid,
+.ssh-inline-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.ssh-inline-fields {
+  margin-top: 0.75rem;
+  align-items: start;
+}
+
+.ssh-form-grid .field-card,
+.ssh-inline-fields .field-card {
+  margin-bottom: 0;
+}
+
+.ssh-actions {
+  margin-top: 1rem;
+}
+
+.ssh-actions .action-button {
+  flex: 1 1 220px;
+  width: auto;
+}
+
+.ssh-server-list {
+  display: grid;
+  gap: 0.75rem;
+  max-height: 420px;
+  overflow: auto;
+  padding-right: 0.25rem;
+}
+
+.ssh-server-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.ssh-server-list::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: var(--line-strong);
+}
+
+.ssh-server-list::-webkit-scrollbar-thumb:hover {
+  background: var(--muted);
+}
+
+.ssh-server-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 1rem;
+  padding: 0.95rem 1rem;
+  border-radius: 12px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.ssh-server-copy {
+  min-width: 0;
+  display: grid;
+  gap: 0.35rem;
+}
+
+.ssh-server-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.ssh-server-heading strong {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 1rem;
+}
+
+.ssh-server-endpoint,
+.ssh-server-meta {
+  margin: 0;
+  color: var(--muted);
+}
+
+.ssh-server-endpoint {
+  font-size: 0.9375rem;
+}
+
+.ssh-server-meta {
+  font-size: 0.8125rem;
+  font-family: 'SF Mono', 'Menlo', monospace;
+  word-break: break-all;
+}
+
+.ssh-auth-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.35rem 0.75rem;
+  border-radius: 999px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.ssh-auth-pill.is-key {
+  color: var(--accent);
+  border-color: rgba(59, 130, 246, 0.2);
+  background: var(--accent-soft);
+}
+
+.ssh-auth-pill.is-password {
+  color: var(--warning);
+  border-color: rgba(245, 158, 11, 0.2);
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.ssh-empty-state {
+  min-height: 220px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
 @keyframes rise-in {
   from {
     opacity: 0;
@@ -729,7 +889,10 @@ button {
 @media (max-width: 880px) {
   .frame-header,
   .section-row,
-  .overview-grid {
+  .overview-grid,
+  .ssh-layout,
+  .ssh-form-grid,
+  .ssh-inline-fields {
     grid-template-columns: 1fr;
   }
 
@@ -751,7 +914,8 @@ button {
   }
 
   .runtime-indicator,
-  .action-button.secondary {
+  .action-button.secondary,
+  .ssh-actions .action-button {
     width: 100%;
   }
 }
@@ -778,5 +942,63 @@ button {
   .account-status {
     justify-self: start;
     grid-column: 2;
+  }
+
+  .ssh-server-row {
+    grid-template-columns: 1fr;
+  }
+
+  .ssh-server-heading {
+    flex-wrap: wrap;
+  }
+
+  .ssh-server-row .action-button {
+    width: 100%;
+  }
+}
+
+/* Tab Navigation */
+.tab-navigation {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 2rem;
+  border-bottom: 1px solid var(--line);
+}
+
+.tab-button {
+  padding: 0.75rem 1.5rem;
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-weight: 600;
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  bottom: -1px;
+}
+
+.tab-button:hover {
+  color: var(--text);
+}
+
+.tab-button.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.tab-content {
+  animation: fadeIn 0.3s ease;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
   }
 }
