@@ -590,7 +590,7 @@ function App() {
 
         <section className="panel" style={{ marginTop: '2rem' }}>
           <div className="panel-heading">
-            <h2>账号管理</h2>
+            <h2>{t.management.title}</h2>
           </div>
           <AccountManagement lang={lang} />
         </section>

@@ -1094,11 +1094,13 @@ fn save_accounts_store(app: &AppHandle, store: &AccountsStore) -> Result<(), Str
     Ok(())
 }
 
-fn account_store_path(_app: &AppHandle) -> Result<PathBuf, String> {
-    let home = env::var("HOME").map_err(|e| format!("无法获取HOME: {e}"))?;
-    Ok(PathBuf::from(home)
-        .join("Library/Application Support/com.carry.codex-tools")
-        .join("accounts.json"))
+fn account_store_path(app: &AppHandle) -> Result<PathBuf, String> {
+    // 使用应用自己的数据目录，与 Codex Tools 完全切割
+    let app_data_dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("无法获取应用数据目录: {e}"))?;
+    Ok(app_data_dir.join("accounts.json"))
 }
 
 fn app_paths(app: &AppHandle) -> AppResult<AppPaths> {

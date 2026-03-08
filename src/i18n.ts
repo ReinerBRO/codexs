@@ -48,6 +48,9 @@ export interface Translations {
     selectAllPending: string
     clearSelection: string
   }
+  management: {
+    title: string
+  }
   status: {
     success: string
     generating: string
@@ -104,6 +107,9 @@ const translations: Record<Language, Translations> = {
       selectAllPending: '全选未导入',
       clearSelection: '取消全选',
     },
+    management: {
+      title: '账号管理',
+    },
     status: {
       success: '成功',
       generating: '正在生成',
@@ -158,6 +164,9 @@ const translations: Record<Language, Translations> = {
       selectAllPending: 'Select All Pending',
       clearSelection: 'Clear Selection',
     },
+    management: {
+      title: 'Account Management',
+    },
     status: {
       success: 'Success',
       generating: 'Generating',
@@ -211,6 +220,9 @@ const translations: Record<Language, Translations> = {
       emptyDescription: '上で数量を設定して生成を開始してください。リストは自動的に更新されます。',
       selectAllPending: '未インポートを全選択',
       clearSelection: '選択解除',
+    },
+    management: {
+      title: 'アカウント管理',
     },
     status: {
       success: '成功',

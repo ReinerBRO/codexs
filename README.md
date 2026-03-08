@@ -3,7 +3,7 @@
 <div align="center">
   <img src="app-icon.png" alt="Codexs Logo" width="200"/>
 
-  **Codex 无限 Token 终极解决方案**
+  **Codex 账号管理与无限 Token 解决方案**
 
   [![Release](https://img.shields.io/github/v/release/ReinerBRO/codexs)](https://github.com/ReinerBRO/codexs/releases)
   [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -18,32 +18,73 @@
 
 ### 简介
 
-Codexs 是一个专为 Codex Tools 用户设计的桌面应用，帮助你批量生成 OpenAI 账号并一键导入到 Codex Tools，实现无限 token 自由。
+Codexs 是一个独立的 Codex 账号管理工具，提供批量生成账号、多账号管理、智能切换、SSH 远程同步等功能，让你的 Codex 使用体验更加流畅。
+
+**v0.3.0 重要更新**：Codexs 现已完全独立，不再依赖 Codex Tools。如果你之前使用过 Codex Tools，请查看 [数据迁移说明](./MIGRATION.md)。
 
 ### 核心功能
 
+#### 账号生成
 - ✅ **批量生成账号** - 想要多少就生成多少
-- ✅ **一键导入** - 自动导入到 Codex Tools
 - ✅ **智能去重** - 避免重复导入
-- ✅ **实时进度** - 显示详细的生成进度（"1/10 - email@example.com 成功"）
+- ✅ **实时进度** - 显示详细的生成进度
+
+#### 账号管理
+- ✅ **多账号管理** - 一键切换 Codex 账号
+- ✅ **用量监控** - 实时显示 5小时/1周 用量窗口
+- ✅ **智能切换** - 自动选择用量最低的账号
+- ✅ **自定义标签** - 为每个账号设置易记的标签
+
+#### 终端会话管理
+- ✅ **自动恢复** - 切换账号时自动恢复 CLI 会话
+- ✅ **智能检测** - 支持 iTerm2 和 Terminal，跳过 VSCode 终端
+- ✅ **原地恢复** - 在原终端标签页中恢复，无需手动操作
+
+#### SSH 远程同步
+- ✅ **一键同步** - 同步认证信息到远程服务器
+- ✅ **自动同步** - 切换账号时自动同步（可选）
+- ✅ **配置导入** - 从 ~/.ssh/config 导入服务器配置
+
+#### 其他特性
 - ✅ **多语言支持** - 中文、英文、日文
 - ✅ **现代界面** - Light 风格，简洁美观
-- ✅ **全选功能** - 一键全选未导入账号
+- ✅ **自动刷新** - 每 30 秒自动更新账号用量
 
 ### 快速开始
 
 1. 下载最新版本的 [Codexs.dmg](https://github.com/ReinerBRO/codexs/releases/latest)
 2. 拖动到 Applications 文件夹
 3. 打开应用（首次打开需要右键 → 打开）
-4. 输入要生成的账号数量
-5. 点击"开始生成"
-6. 点击"全选未导入"，然后点击"导入选中账号"
+4. 如果你之前使用过 Codex Tools，运行迁移脚本（可选）：
+   ```bash
+   /Applications/Codexs.app/Contents/Resources/scripts/migrate.sh
+   ```
+5. 开始使用！
+
+### 数据迁移（从 Codex Tools）
+
+如果你之前使用过 Codex Tools，可以使用自动迁移脚本：
+
+```bash
+/Applications/Codexs.app/Contents/Resources/scripts/migrate.sh
+```
+
+或者手动迁移：
+
+```bash
+mkdir -p ~/Library/Application\ Support/com.codexs.app
+cp ~/Library/Application\ Support/com.carry.codex-tools/accounts.json \
+   ~/Library/Application\ Support/com.codexs.app/accounts.json
+```
+
+详细说明请查看 [MIGRATION.md](./MIGRATION.md)。
 
 ### 使用提示
 
 - 建议一次生成 10-20 个账号
 - 生成的账号会自动保存在本地
-- **重要**：在 Codex Tools 中切换账号后，需要重新开启对话才能使用新账号额度（这是 Codex Tools 的会话机制限制）
+- 开启"自动恢复 CLI 会话"可以在切换账号时自动恢复终端会话
+- 配置 SSH 服务器后，可以实现本地切换、远程自动同步
 
 ### 系统要求
 
@@ -63,32 +104,73 @@ Codexs 是一个专为 Codex Tools 用户设计的桌面应用，帮助你批量
 
 ### Introduction
 
-Codexs is a desktop application designed for Codex Tools users to batch generate OpenAI accounts and import them to Codex Tools with one click, achieving unlimited token freedom.
+Codexs is an independent Codex account management tool that provides batch account generation, multi-account management, smart switching, SSH remote sync, and more to make your Codex experience smoother.
+
+**v0.3.0 Important Update**: Codexs is now completely independent and no longer depends on Codex Tools. If you previously used Codex Tools, please see the [Migration Guide](./MIGRATION.md).
 
 ### Core Features
 
+#### Account Generation
 - ✅ **Batch Generation** - Generate as many accounts as you need
-- ✅ **One-Click Import** - Automatically import to Codex Tools
 - ✅ **Smart Deduplication** - Avoid duplicate imports
-- ✅ **Real-time Progress** - Display detailed generation progress ("1/10 - email@example.com Success")
+- ✅ **Real-time Progress** - Display detailed generation progress
+
+#### Account Management
+- ✅ **Multi-account Management** - Switch Codex accounts with one click
+- ✅ **Usage Monitoring** - Real-time display of 5-hour/1-week usage windows
+- ✅ **Smart Switching** - Automatically select the account with the lowest usage
+- ✅ **Custom Labels** - Set memorable labels for each account
+
+#### Terminal Session Management
+- ✅ **Auto-resume** - Automatically resume CLI sessions when switching accounts
+- ✅ **Smart Detection** - Supports iTerm2 and Terminal, skips VSCode terminal
+- ✅ **In-place Recovery** - Resume in the original terminal tab, no manual operation required
+
+#### SSH Remote Sync
+- ✅ **One-click Sync** - Sync authentication info to remote servers
+- ✅ **Auto-sync** - Automatically sync when switching accounts (optional)
+- ✅ **Config Import** - Import server config from ~/.ssh/config
+
+#### Other Features
 - ✅ **Multi-language** - Chinese, English, Japanese
 - ✅ **Modern UI** - Light theme, clean and beautiful
-- ✅ **Select All** - One-click select all pending accounts
+- ✅ **Auto-refresh** - Automatically update account usage every 30 seconds
 
 ### Quick Start
 
 1. Download the latest [Codexs.dmg](https://github.com/ReinerBRO/codexs/releases/latest)
 2. Drag to Applications folder
 3. Open the app (first time: right-click → Open)
-4. Enter the number of accounts to generate
-5. Click "Start Generation"
-6. Click "Select All Pending", then click "Import Selected"
+4. If you previously used Codex Tools, run the migration script (optional):
+   ```bash
+   /Applications/Codexs.app/Contents/Resources/scripts/migrate.sh
+   ```
+5. Start using!
+
+### Data Migration (from Codex Tools)
+
+If you previously used Codex Tools, you can use the automatic migration script:
+
+```bash
+/Applications/Codexs.app/Contents/Resources/scripts/migrate.sh
+```
+
+Or migrate manually:
+
+```bash
+mkdir -p ~/Library/Application\ Support/com.codexs.app
+cp ~/Library/Application\ Support/com.carry.codex-tools/accounts.json \
+   ~/Library/Application\ Support/com.codexs.app/accounts.json
+```
+
+For detailed instructions, see [MIGRATION.md](./MIGRATION.md).
 
 ### Usage Tips
 
 - Recommended to generate 10-20 accounts at a time
 - Generated accounts are automatically saved locally
-- **Important**: After switching accounts in Codex Tools, you need to restart the conversation to use the new account's quota (this is a limitation of Codex Tools' session mechanism)
+- Enable "Auto-resume CLI sessions" to automatically resume terminal sessions when switching accounts
+- After configuring SSH servers, you can achieve local switching and remote auto-sync
 
 ### System Requirements
 
@@ -100,7 +182,7 @@ Codexs is a desktop application designed for Codex Tools users to batch generate
 
 - Tauri + React + TypeScript
 - Rust backend
-- Python scripts (packaged as standalone executable)
+- Python scripts (packaged as standalone executables)
 
 ---
 
@@ -108,38 +190,79 @@ Codexs is a desktop application designed for Codex Tools users to batch generate
 
 ### 概要
 
-Codexs は Codex Tools ユーザー向けのデスクトップアプリケーションで、OpenAI アカウントを一括生成し、ワンクリックで Codex Tools にインポートすることで、無限トークンの自由を実現します。
+Codexs は独立した Codex アカウント管理ツールで、バッチアカウント生成、マルチアカウント管理、スマート切り替え、SSH リモート同期などの機能を提供し、Codex の使用体験をよりスムーズにします。
 
-### 主な機能
+**v0.3.0 重要な更新**: Codexs は完全に独立し、Codex Tools に依存しなくなりました。以前に Codex Tools を使用していた場合は、[移行ガイド](./MIGRATION.md) を参照してください。
 
-- ✅ **一括生成** - 必要な数だけアカウントを生成
-- ✅ **ワンクリックインポート** - Codex Tools に自動インポート
+### コア機能
+
+#### アカウント生成
+- ✅ **バッチ生成** - 必要な数だけアカウントを生成
 - ✅ **スマート重複排除** - 重複インポートを回避
-- ✅ **リアルタイム進捗** - 詳細な生成進捗を表示（「1/10 - email@example.com 成功」）
+- ✅ **リアルタイム進捗** - 詳細な生成進捗を表示
+
+#### アカウント管理
+- ✅ **マルチアカウント管理** - ワンクリックで Codex アカウントを切り替え
+- ✅ **使用量監視** - 5時間/1週間の使用量ウィンドウをリアルタイム表示
+- ✅ **スマート切り替え** - 使用量が最も少ないアカウントを自動選択
+- ✅ **カスタムラベル** - 各アカウントに覚えやすいラベルを設定
+
+#### ターミナルセッション管理
+- ✅ **自動再開** - アカウント切り替え時に CLI セッションを自動再開
+- ✅ **スマート検出** - iTerm2 と Terminal をサポート、VSCode ターミナルをスキップ
+- ✅ **その場で復元** - 元のターミナルタブで再開、手動操作不要
+
+#### SSH リモート同期
+- ✅ **ワンクリック同期** - 認証情報をリモートサーバーに同期
+- ✅ **自動同期** - アカウント切り替え時に自動同期（オプション）
+- ✅ **設定インポート** - ~/.ssh/config からサーバー設定をインポート
+
+#### その他の機能
 - ✅ **多言語対応** - 中国語、英語、日本語
-- ✅ **モダン UI** - ライトテーマ、シンプルで美しい
-- ✅ **全選択** - 未インポートアカウントをワンクリックで全選択
+- ✅ **モダンUI** - ライトテーマ、クリーンで美しい
+- ✅ **自動更新** - 30秒ごとにアカウント使用量を自動更新
 
 ### クイックスタート
 
-1. 最新版の [Codexs.dmg](https://github.com/ReinerBRO/codexs/releases/latest) をダウンロード
+1. 最新の [Codexs.dmg](https://github.com/ReinerBRO/codexs/releases/latest) をダウンロード
 2. Applications フォルダにドラッグ
 3. アプリを開く（初回：右クリック → 開く）
-4. 生成するアカウント数を入力
-5. 「生成開始」をクリック
-6. 「未インポートを全選択」をクリックし、「選択したアカウントをインポート」をクリック
+4. 以前に Codex Tools を使用していた場合は、移行スクリプトを実行（オプション）：
+   ```bash
+   /Applications/Codexs.app/Contents/Resources/scripts/migrate.sh
+   ```
+5. 使用開始！
 
-### 使用上のヒント
+### データ移行（Codex Tools から）
+
+以前に Codex Tools を使用していた場合は、自動移行スクリプトを使用できます：
+
+```bash
+/Applications/Codexs.app/Contents/Resources/scripts/migrate.sh
+```
+
+または手動で移行：
+
+```bash
+mkdir -p ~/Library/Application\ Support/com.codexs.app
+cp ~/Library/Application\ Support/com.carry.codex-tools/accounts.json \
+   ~/Library/Application\ Support/com.codexs.app/accounts.json
+```
+
+詳細な手順については、[MIGRATION.md](./MIGRATION.md) を参照してください。
+
+### 使用のヒント
 
 - 一度に 10-20 個のアカウントを生成することをお勧めします
 - 生成されたアカウントは自動的にローカルに保存されます
-- **重要**：Codex Tools でアカウントを切り替えた後、新しいアカウントの割り当てを使用するには会話を再開する必要があります（これは Codex Tools のセッションメカニズムの制限です）
+- 「CLI セッションを自動再開」を有効にすると、アカウント切り替え時にターミナルセッションが自動的に再開されます
+- SSH サーバーを設定すると、ローカル切り替えとリモート自動同期が実現できます
 
 ### システム要件
 
-- macOS 11.0 以降
+- macOS 11.0 以上
 - Apple Silicon (M1/M2/M3) または Intel プロセッサ
-- Python やその他の依存関係のインストールは不要（内蔵）
+- Python やその他の依存関係をインストールする必要はありません（組み込み済み）
 
 ### 技術スタック
 
@@ -151,12 +274,12 @@ Codexs は Codex Tools ユーザー向けのデスクトップアプリケーシ
 
 ## License
 
-MIT License
+MIT License - see [LICENSE](LICENSE) for details
 
 ## Contributing
 
 Contributions are welcome! Please feel free to submit a Pull Request.
 
-## Disclaimer
+## Support
 
-This tool is for educational and research purposes only. Please comply with OpenAI's Terms of Service and do not abuse the batch registration feature.
+If you encounter any issues or have questions, please [open an issue](https://github.com/ReinerBRO/codexs/issues).
