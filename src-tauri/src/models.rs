@@ -75,15 +75,20 @@ pub struct Account {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Usage {
+    #[serde(alias = "fiveHour")]
     pub five_hour: UsageWindow,
+    #[serde(alias = "oneWeek")]
     pub one_week: UsageWindow,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UsageWindow {
-    pub used: f64,
-    pub limit: f64,
-    pub percentage: f64,
+    #[serde(alias = "usedPercent")]
+    pub used_percent: f64,
+    #[serde(alias = "windowSeconds", default)]
+    pub window_seconds: i64,
+    #[serde(alias = "resetAt", default)]
+    pub reset_at: i64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,12 +96,19 @@ pub struct StoredAccount {
     pub id: String,
     pub label: String,
     pub email: Option<String>,
+    #[serde(alias = "accountId")]
     pub account_id: String,
+    #[serde(alias = "planType")]
     pub plan_type: Option<String>,
+    #[serde(alias = "authJson")]
     pub auth_json: Value,
+    #[serde(alias = "addedAt")]
     pub added_at: i64,
+    #[serde(alias = "updatedAt")]
     pub updated_at: i64,
+    #[serde(default)]
     pub usage: Option<Usage>,
+    #[serde(alias = "usageError")]
     pub usage_error: Option<String>,
 }
 

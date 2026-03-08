@@ -134,6 +134,8 @@ struct SshServersState {
     version: u8,
     #[serde(default)]
     servers: Vec<SshServer>,
+    #[serde(default)]
+    auto_sync_enabled: bool,
 }
 
 impl Default for SshServersState {
@@ -141,6 +143,7 @@ impl Default for SshServersState {
         Self {
             version: default_ssh_servers_version(),
             servers: Vec::new(),
+            auto_sync_enabled: false,
         }
     }
 }
@@ -159,6 +162,7 @@ pub struct CodexSession {
     pub pid: u32,
     pub session_id: String,
     pub tty: String,
+    pub cwd: String,
 }
 
 #[derive(Debug)]
@@ -542,8 +546,24 @@ pub async fn switch_account(
 
     write_active_codex_auth(&account.auth_json)?;
 
+    // 检查是否开启了SSH自动同步
+    let paths = app_paths(&app).map_err(|error| error.to_string())?;
+    let ssh_state = load_ssh_servers_state(&paths)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    if ssh_state.auto_sync_enabled && !ssh_state.servers.is_empty() {
+        // 异步同步，不阻塞切换操作
+        let app_clone = app.clone();
+        tokio::spawn(async move {
+            let _ = sync_auth_to_ssh(app_clone).await;
+        });
+    }
+
     if auto_resume {
-        terminate_and_resume_sessions().await?;
+        // 不传入工作目录，处理所有 codex 会话
+        // TODO: 未来可以让前端传入工作目录进行过滤
+        terminate_and_resume_sessions(None).await?;
     }
 
     Ok(())
@@ -691,6 +711,119 @@ pub async fn delete_ssh_server(app: AppHandle, id: String) -> Result<(), String>
 }
 
 #[tauri::command]
+pub async fn get_ssh_auto_sync(app: AppHandle) -> Result<bool, String> {
+    let paths = app_paths(&app).map_err(|error| error.to_string())?;
+    let state = load_ssh_servers_state(&paths)
+        .await
+        .map_err(|error| error.to_string())?;
+    Ok(state.auto_sync_enabled)
+}
+
+#[tauri::command]
+pub async fn set_ssh_auto_sync(app: AppHandle, enabled: bool) -> Result<(), String> {
+    let paths = app_paths(&app).map_err(|error| error.to_string())?;
+    let mut state = load_ssh_servers_state(&paths)
+        .await
+        .map_err(|error| error.to_string())?;
+    state.auto_sync_enabled = enabled;
+    save_ssh_servers_state(&paths, &state)
+        .await
+        .map_err(|error| error.to_string())
+}
+
+#[tauri::command]
+pub async fn sync_auth_to_ssh(app: AppHandle) -> Result<Vec<String>, String> {
+    let paths = app_paths(&app).map_err(|error| error.to_string())?;
+    let state = load_ssh_servers_state(&paths)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    if state.servers.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let auth_path = codex_auth_path()?;
+    if !fs::try_exists(&auth_path)
+        .await
+        .map_err(|error| format!("无法检查 auth.json: {error}"))?
+    {
+        return Err("auth.json 不存在".to_string());
+    }
+
+    let config_path = codex_config_path()?;
+    let has_config = fs::try_exists(&config_path)
+        .await
+        .map_err(|error| format!("无法检查 config.toml: {error}"))?;
+
+    let mut results = Vec::new();
+    for server in &state.servers {
+        // 同步 auth.json
+        let auth_remote = format!("{}@{}:.codex/auth.json", server.username, server.host);
+        let mut auth_cmd = Command::new("scp");
+        auth_cmd.arg("-P").arg(server.port.to_string());
+
+        if let Some(key_path) = &server.key_path {
+            auth_cmd.arg("-i").arg(key_path);
+        }
+
+        auth_cmd.arg(&auth_path).arg(&auth_remote);
+
+        let auth_result = match auth_cmd.output().await {
+            Ok(output) if output.status.success() => Ok(()),
+            Ok(output) => {
+                let stderr = String::from_utf8_lossy(&output.stderr);
+                Err(format!("auth.json: {}", stderr.trim()))
+            }
+            Err(e) => Err(format!("auth.json: {}", e)),
+        };
+
+        // 同步 config.toml（如果存在）
+        let config_result = if has_config {
+            let config_remote = format!("{}@{}:.codex/config.toml", server.username, server.host);
+            let mut config_cmd = Command::new("scp");
+            config_cmd.arg("-P").arg(server.port.to_string());
+
+            if let Some(key_path) = &server.key_path {
+                config_cmd.arg("-i").arg(key_path);
+            }
+
+            config_cmd.arg(&config_path).arg(&config_remote);
+
+            match config_cmd.output().await {
+                Ok(output) if output.status.success() => Ok(()),
+                Ok(output) => {
+                    let stderr = String::from_utf8_lossy(&output.stderr);
+                    Err(format!("config.toml: {}", stderr.trim()))
+                }
+                Err(e) => Err(format!("config.toml: {}", e)),
+            }
+        } else {
+            Ok(())
+        };
+
+        // 汇总结果
+        match (auth_result, config_result) {
+            (Ok(()), Ok(())) => {
+                results.push(format!("✓ {}", server.name));
+            }
+            (Err(e1), Ok(())) => {
+                results.push(format!("✗ {}: {}", server.name, e1));
+            }
+            (Ok(()), Err(e2)) => {
+                results.push(format!("✗ {}: {}", server.name, e2));
+            }
+            (Err(e1), Err(e2)) => {
+                results.push(format!("✗ {}: {} | {}", server.name, e1, e2));
+            }
+        }
+    }
+
+    Ok(results)
+}
+
+
+
+#[tauri::command]
 pub async fn parse_ssh_config() -> Result<Vec<SshServer>, String> {
     let config_path = ssh_config_path()?;
     if !fs::try_exists(&config_path)
@@ -738,10 +871,14 @@ pub async fn find_codex_sessions() -> Result<Vec<CodexSession>, String> {
             continue;
         };
 
+        // 获取进程的工作目录
+        let cwd = get_process_cwd(process.pid).await.unwrap_or_default();
+
         sessions.push(CodexSession {
             pid: process.pid,
             session_id,
             tty: process.tty,
+            cwd,
         });
     }
 
@@ -754,17 +891,61 @@ pub async fn find_codex_sessions() -> Result<Vec<CodexSession>, String> {
 }
 
 #[tauri::command]
-pub async fn terminate_and_resume_sessions() -> Result<Vec<String>, String> {
-    let sessions = find_codex_sessions().await?;
+pub async fn terminate_and_resume_sessions(current_cwd: Option<String>) -> Result<Vec<String>, String> {
+    eprintln!("=== terminate_and_resume_sessions 开始 ===");
+    eprintln!("当前工作目录: {:?}", current_cwd);
+
+    let all_sessions = find_codex_sessions().await?;
+    eprintln!("找到 {} 个 codex 会话", all_sessions.len());
+
+    // 如果指定了工作目录，只处理该目录下的会话
+    let sessions: Vec<CodexSession> = if let Some(ref cwd) = current_cwd {
+        all_sessions.into_iter()
+            .filter(|s| {
+                let matches = s.cwd == *cwd;
+                if !matches {
+                    eprintln!("跳过会话 {} (cwd: {})", s.session_id, s.cwd);
+                }
+                matches
+            })
+            .collect()
+    } else {
+        all_sessions
+    };
+
+    eprintln!("过滤后剩余 {} 个会话需要处理", sessions.len());
+
     let mut resumed = Vec::with_capacity(sessions.len());
 
     for session in sessions {
+        eprintln!("处理会话: session_id={}, pid={}, tty={}, cwd={}",
+                  session.session_id, session.pid, session.tty, session.cwd);
+
+        // 检测是否是 VSCode 终端，如果是则跳过
+        if is_vscode_terminal(session.pid).await {
+            eprintln!("检测到 VSCode 终端，跳过自动恢复: session_id={}", session.session_id);
+            continue;
+        }
+
         terminate_process(session.pid).await?;
+        eprintln!("已终止进程 {}", session.pid);
+
         std::thread::sleep(Duration::from_millis(250));
-        run_terminal_resume_script(&session).await?;
-        resumed.push(session.session_id);
+
+        eprintln!("准备恢复会话 {}", session.session_id);
+        match run_terminal_resume_script(&session).await {
+            Ok(_) => {
+                eprintln!("成功恢复会话 {}", session.session_id);
+                resumed.push(session.session_id.clone());
+            }
+            Err(e) => {
+                eprintln!("恢复会话 {} 失败: {}", session.session_id, e);
+                return Err(e);
+            }
+        }
     }
 
+    eprintln!("=== terminate_and_resume_sessions 完成，恢复了 {} 个会话 ===", resumed.len());
     Ok(resumed)
 }
 
@@ -913,12 +1094,11 @@ fn save_accounts_store(app: &AppHandle, store: &AccountsStore) -> Result<(), Str
     Ok(())
 }
 
-fn account_store_path(app: &AppHandle) -> Result<PathBuf, String> {
-    let data_dir = app
-        .path()
-        .app_data_dir()
-        .map_err(|e| format!("无法获取应用数据目录: {e}"))?;
-    Ok(data_dir.join("accounts.json"))
+fn account_store_path(_app: &AppHandle) -> Result<PathBuf, String> {
+    let home = env::var("HOME").map_err(|e| format!("无法获取HOME: {e}"))?;
+    Ok(PathBuf::from(home)
+        .join("Library/Application Support/com.carry.codex-tools")
+        .join("accounts.json"))
 }
 
 fn app_paths(app: &AppHandle) -> AppResult<AppPaths> {
@@ -1247,6 +1427,18 @@ fn ssh_config_path() -> Result<PathBuf, String> {
     Ok(home_dir.join(".ssh").join("config"))
 }
 
+fn codex_auth_path() -> Result<PathBuf, String> {
+    let home_dir = home_dir().ok_or_else(|| "无法解析用户主目录".to_string())?;
+    Ok(home_dir.join(".codex").join("auth.json"))
+}
+
+fn codex_config_path() -> Result<PathBuf, String> {
+    let home_dir = home_dir().ok_or_else(|| "无法解析用户主目录".to_string())?;
+    Ok(home_dir.join(".codex").join("config.toml"))
+}
+
+
+
 fn codex_state_db_path() -> Result<PathBuf, String> {
     let codex_dir = home_dir()
         .ok_or_else(|| "无法解析用户主目录".to_string())?
@@ -1294,15 +1486,26 @@ fn parse_native_codex_resume_process(line: &str) -> Option<ParsedCodexProcess> {
     }
 
     let command_parts: Vec<&str> = parts.collect();
-    if command_parts.len() < 2 {
+    if command_parts.is_empty() {
         return None;
     }
 
     let executable = command_parts.first().copied()?;
-    let subcommand = command_parts.get(1).copied()?;
-
-    if !is_codex_executable(executable) || subcommand != "resume" {
+    if !is_codex_executable(executable) {
         return None;
+    }
+
+    // 如果有子命令，检查是否是我们关心的
+    if command_parts.len() >= 2 {
+        let subcommand = command_parts.get(1).copied()?;
+
+        // 排除后台服务和非交互式命令
+        let excluded_subcommands = ["mcp-server", "app-server", "login", "logout", "version", "help"];
+        if excluded_subcommands.contains(&subcommand) {
+            return None;
+        }
+
+        // 接受 "resume" 和其他交互式命令
     }
 
     Some(ParsedCodexProcess {
@@ -1375,6 +1578,82 @@ fn query_session_from_sqlite(pid: u32) -> Result<Option<String>, String> {
     Ok(session_id.filter(|id| looks_like_session_id(id)))
 }
 
+async fn get_process_cwd(pid: u32) -> Result<String, String> {
+    let output = Command::new("lsof")
+        .arg("-p")
+        .arg(pid.to_string())
+        .arg("-a")
+        .arg("-d")
+        .arg("cwd")
+        .arg("-Fn")
+        .output()
+        .await
+        .map_err(|error| format!("获取进程工作目录失败: {error}"))?;
+
+    if !output.status.success() {
+        return Err("lsof 命令执行失败".to_string());
+    }
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    for line in stdout.lines() {
+        if let Some(cwd) = line.strip_prefix('n') {
+            return Ok(cwd.to_string());
+        }
+    }
+
+    Err(format!("无法获取进程 {pid} 的工作目录"))
+}
+
+async fn is_vscode_terminal(pid: u32) -> bool {
+    eprintln!("=== 检测 VSCode 终端: pid={} ===", pid);
+
+    // 获取进程的完整父进程链
+    let mut current_pid = pid;
+    let mut depth = 0;
+    const MAX_DEPTH: usize = 10;
+
+    while depth < MAX_DEPTH {
+        let output = Command::new("ps")
+            .arg("-p")
+            .arg(current_pid.to_string())
+            .arg("-o")
+            .arg("ppid=,command=")
+            .output()
+            .await;
+
+        let Ok(output) = output else {
+            eprintln!("无法获取进程 {} 的信息", current_pid);
+            return false;
+        };
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        eprintln!("进程 {} 信息: {}", current_pid, stdout.trim());
+
+        // 检查当前进程的命令行
+        let line_lower = stdout.to_lowercase();
+        if line_lower.contains("code") || line_lower.contains("vscode") || line_lower.contains("electron") {
+            eprintln!("✓ 检测到 VSCode 相关进程");
+            return true;
+        }
+
+        // 获取父进程 PID
+        let ppid_str = stdout.split_whitespace().next();
+        match ppid_str.and_then(|s| s.trim().parse::<u32>().ok()) {
+            Some(ppid) if ppid > 1 && ppid != current_pid => {
+                current_pid = ppid;
+                depth += 1;
+            }
+            _ => {
+                eprintln!("✗ 未检测到 VSCode，已到达进程树顶端");
+                return false;
+            }
+        }
+    }
+
+    eprintln!("✗ 未检测到 VSCode，已达到最大深度");
+    false
+}
+
 async fn terminate_process(pid: u32) -> Result<(), String> {
     let output = Command::new("kill")
         .arg("-TERM")
@@ -1399,49 +1678,148 @@ async fn terminate_process(pid: u32) -> Result<(), String> {
 }
 
 async fn run_terminal_resume_script(session: &CodexSession) -> Result<(), String> {
-    let tty = normalize_terminal_tty(&session.tty);
+    // 确保 tty 有 /dev/ 前缀
+    let tty = if session.tty.starts_with("/dev/") {
+        session.tty.clone()
+    } else {
+        format!("/dev/{}", session.tty)
+    };
     let resume_command = format!("codex resume {}", session.session_id);
-    let script = format!(
+
+    eprintln!("=== run_terminal_resume_script ===");
+    eprintln!("tty: {}", tty);
+    eprintln!("session_id: {}", session.session_id);
+    eprintln!("resume_command: {}", resume_command);
+
+    // 方法1: 尝试 iTerm2 - 在原标签页中执行
+    let iterm_script = format!(
+        r#"tell application "iTerm2"
+    set targetTty to "{tty}"
+    set resumeCommand to "{resume_command}"
+    set foundSession to false
+
+    repeat with targetWindow in windows
+        repeat with targetTab in tabs of targetWindow
+            repeat with targetSession in sessions of targetTab
+                if tty of targetSession is targetTty then
+                    tell targetSession
+                        -- 先发送 Ctrl+C 清理终端状态
+                        write text (ASCII character 3)
+                        delay 0.2
+                        -- 然后执行 resume 命令
+                        write text resumeCommand
+                    end tell
+                    activate
+                    set foundSession to true
+                    exit repeat
+                end if
+            end repeat
+            if foundSession then exit repeat
+        end repeat
+        if foundSession then exit repeat
+    end repeat
+
+    if foundSession then
+        return "success"
+    else
+        error "未找到对应的 iTerm session: {tty}"
+    end if
+end tell"#
+    );
+
+    eprintln!("尝试 iTerm2...");
+    let iterm_output = Command::new("osascript")
+        .arg("-e")
+        .arg(&iterm_script)
+        .output()
+        .await;
+
+    if let Ok(output) = iterm_output {
+        eprintln!("iTerm2 status: {:?}", output.status);
+        eprintln!("iTerm2 stdout: {}", String::from_utf8_lossy(&output.stdout));
+        eprintln!("iTerm2 stderr: {}", String::from_utf8_lossy(&output.stderr));
+
+        if output.status.success() {
+            eprintln!("iTerm2 执行成功");
+            return Ok(());
+        }
+    }
+
+    // 方法2: 尝试 Terminal - 也在原标签页中执行
+    let terminal_script = format!(
         r#"tell application "Terminal"
     set targetTty to "{tty}"
     set resumeCommand to "{resume_command}"
+    set foundTab to false
+
     repeat with targetWindow in windows
         repeat with targetTab in tabs of targetWindow
             if tty of targetTab is targetTty then
+                -- 先发送 Ctrl+C 清理终端状态
+                do script (ASCII character 3) in targetTab
+                delay 0.2
+                -- 然后执行 resume 命令
                 do script resumeCommand in targetTab
                 activate
-                return targetTty
+                set foundTab to true
+                exit repeat
             end if
         end repeat
+        if foundTab then exit repeat
     end repeat
-end tell
-error "未找到对应的 Terminal 标签页: {tty}""#
+
+    if foundTab then
+        return "success"
+    else
+        error "未找到对应的 Terminal 标签页: {tty}"
+    end if
+end tell"#
     );
 
+    eprintln!("尝试 Terminal...");
     let output = Command::new("osascript")
         .arg("-e")
-        .arg(script)
+        .arg(&terminal_script)
         .output()
         .await
         .map_err(|error| format!("执行 AppleScript 失败: {error}"))?;
+
+    eprintln!("Terminal status: {:?}", output.status);
+    eprintln!("Terminal stdout: {}", String::from_utf8_lossy(&output.stdout));
+    eprintln!("Terminal stderr: {}", String::from_utf8_lossy(&output.stderr));
 
     if output.status.success() {
         return Ok(());
     }
 
-    Err(format!(
-        "恢复 Codex session {} 失败: {}",
-        session.session_id,
-        command_output_summary(&output)
-    ))
-}
+    // 方法3: 对于 VSCode 等无法自动恢复的终端，只显示提示信息
+    eprintln!("无法在该终端中自动恢复会话");
+    eprintln!("请手动在终端中运行: {}", resume_command);
 
-fn normalize_terminal_tty(tty: &str) -> String {
-    if tty.starts_with("/dev/") {
-        tty.to_string()
-    } else {
-        format!("/dev/{tty}")
+    // 尝试在终端中显示提示信息
+    let hint_message = format!(
+        "\n=== Codexs 提示 ===\n请运行以下命令恢复会话:\n{}\n==================\n",
+        resume_command
+    );
+
+    let write_hint = Command::new("sh")
+        .arg("-c")
+        .arg(format!("printf '%s' '{}' > {}", hint_message, tty))
+        .output()
+        .await;
+
+    if let Ok(output) = write_hint {
+        if output.status.success() {
+            eprintln!("已在终端中显示提示信息");
+            // 注意：这不算成功恢复，但也不算失败
+            // 返回 Ok 以便继续处理其他会话
+            return Ok(());
+        }
     }
+
+    // 如果连提示信息都无法显示，也返回 Ok，避免中断整个流程
+    eprintln!("无法在终端中显示提示信息，用户需要手动恢复会话");
+    Ok(())
 }
 
 fn expand_home_path(path: &str) -> String {

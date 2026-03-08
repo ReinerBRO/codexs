@@ -23,6 +23,9 @@ pub fn run() {
             commands::list_ssh_servers,
             commands::add_ssh_server,
             commands::delete_ssh_server,
+            commands::get_ssh_auto_sync,
+            commands::set_ssh_auto_sync,
+            commands::sync_auth_to_ssh,
             commands::parse_ssh_config,
             commands::find_codex_sessions,
             commands::terminate_and_resume_sessions

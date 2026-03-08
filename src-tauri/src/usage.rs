@@ -85,6 +85,13 @@ pub(crate) async fn fetch_usage(
                 continue;
             }
         };
+
+        eprintln!("=== Usage API Response ===");
+        eprintln!("URL: {}", usage_url);
+        eprintln!("plan_type: {:?}", payload.plan_type);
+        eprintln!("rate_limit: {:?}", payload.rate_limit);
+        eprintln!("additional_rate_limits: {:?}", payload.additional_rate_limits);
+
         return map_usage_payload(payload);
     }
 
@@ -219,9 +226,13 @@ fn pick_nearest_window(windows: &[UsageWindowRaw], target_seconds: i64) -> Optio
 }
 
 fn to_usage_window(window: UsageWindowRaw) -> UsageWindow {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64;
     UsageWindow {
-        used: window.used_percent,
-        limit: 100.0,
-        percentage: window.used_percent,
+        used_percent: window.used_percent,
+        window_seconds: window.limit_window_seconds,
+        reset_at: now + window.limit_window_seconds,
     }
 }

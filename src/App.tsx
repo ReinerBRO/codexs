@@ -592,7 +592,7 @@ function App() {
           <div className="panel-heading">
             <h2>账号管理</h2>
           </div>
-          <AccountManagement />
+          <AccountManagement lang={lang} />
         </section>
       </section>
     </main>
