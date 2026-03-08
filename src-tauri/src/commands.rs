@@ -30,6 +30,7 @@ use std::{
 };
 use tauri::{AppHandle, Emitter, Manager, State};
 use tokio::{fs, process::Command};
+use uuid::Uuid;
 
 const GENERATION_PROGRESS_EVENT: &str = "generation_progress";
 
@@ -75,6 +76,7 @@ struct AppPaths {
 struct DiscoveredCodexAccount {
     email: String,
     created_at: String,
+    token_file: CodexTokenFile,
 }
 
 #[derive(Debug, Deserialize)]
@@ -93,7 +95,7 @@ struct RawGeneratedToken {
     refresh_token: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 struct CodexTokenFile {
     #[serde(default)]
     last_refresh: String,
@@ -101,10 +103,16 @@ struct CodexTokenFile {
     tokens: CodexTokenFields,
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Debug, Default, Deserialize, Clone)]
 struct CodexTokenFields {
     #[serde(default)]
     id_token: String,
+    #[serde(default)]
+    access_token: String,
+    #[serde(default)]
+    refresh_token: String,
+    #[serde(default)]
+    account_id: String,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -317,7 +325,7 @@ pub async fn get_accounts(app: AppHandle) -> AppResult<Vec<AvailableAccount>> {
 }
 
 #[tauri::command]
-pub async fn import_accounts(app: AppHandle, emails: Vec<String>) -> AppResult<ImportResult> {
+pub async fn import_accounts(app: AppHandle, emails: Vec<String>, state: State<'_, AppState>) -> AppResult<ImportResult> {
     let requested = unique_emails(emails);
     if requested.is_empty() {
         return Ok(ImportResult {
@@ -333,15 +341,17 @@ pub async fn import_accounts(app: AppHandle, emails: Vec<String>) -> AppResult<I
     let state_path = paths.data_dir.join("accounts_state.json");
     ensure_state_file(&state_path).await?;
 
+    // 读取可用的 token 文件
     let available_accounts = read_codex_accounts(&paths).await?;
-    let available_lookup: HashSet<String> = available_accounts
+    let available_lookup: std::collections::HashMap<String, DiscoveredCodexAccount> = available_accounts
         .into_iter()
-        .map(|account| account.email)
+        .map(|account| (account.email.clone(), account))
         .collect();
 
+    // 筛选出可导入的账号
     let importable: Vec<String> = requested
         .iter()
-        .filter(|email| available_lookup.contains(*email))
+        .filter(|email| available_lookup.contains_key(*email))
         .cloned()
         .collect();
 
@@ -355,44 +365,84 @@ pub async fn import_accounts(app: AppHandle, emails: Vec<String>) -> AppResult<I
         });
     }
 
-    let mut args: Vec<&str> = vec!["--emails"];
-    let owned_args: Vec<String> = importable.clone();
-    let borrowed_args: Vec<&str> = owned_args.iter().map(String::as_str).collect();
-    args.extend(borrowed_args);
+    // 加载账号存储
+    let _guard = state
+        .account_store_lock
+        .lock()
+        .map_err(|_| AppError::new("账号存储锁已损坏"))?;
 
-    let output =
-        run_python_script(&paths, &paths.data_dir, "import_to_codex_tools.py", &args).await?;
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let summary = parse_import_summary(&stdout)
-        .ok_or_else(|| AppError::new("导入脚本未返回 SUMMARY_JSON 结果"))?;
+    let mut store = load_accounts_store(&app).map_err(AppError::new)?;
+    let existing_emails: HashSet<String> = store
+        .accounts
+        .iter()
+        .filter_map(|a| a.email.as_ref().map(|e| normalize_email(e)))
+        .collect();
 
-    let mut imported_emails = summary.added;
-    imported_emails.extend(summary.skipped_existing);
-    let imported_emails = unique_emails(imported_emails);
+    let mut imported_emails = Vec::new();
+    let mut skipped_count = 0;
+    let mut failed_count = 0;
 
+    let now = now_unix_seconds();
+
+    // 导入账号
+    for email in importable {
+        let normalized_email = normalize_email(&email);
+
+        // 检查账号是否已经存在于 accounts.json 中
+        if existing_emails.contains(&normalized_email) {
+            skipped_count += 1;
+            imported_emails.push(email);
+            continue;
+        }
+
+        if let Some(discovered) = available_lookup.get(&email) {
+            let tokens = &discovered.token_file.tokens;
+
+            // 构建 auth_json
+            let auth_json = json!({
+                "access_token": tokens.access_token,
+                "refresh_token": tokens.refresh_token,
+                "id_token": tokens.id_token,
+            });
+
+            let account = ManagedStoredAccount {
+                id: Uuid::new_v4().to_string(),
+                label: email.clone(),
+                email: Some(email.clone()),
+                account_id: tokens.account_id.clone(),
+                plan_type: Some("free".to_string()),
+                auth_json,
+                added_at: now,
+                updated_at: now,
+                usage: None,
+                usage_error: None,
+            };
+
+            store.accounts.push(account);
+            imported_emails.push(email);
+        } else {
+            failed_count += 1;
+        }
+    }
+
+    // 保存账号存储
+    save_accounts_store(&app, &store).map_err(AppError::new)?;
+
+    // 释放锁
+    drop(_guard);
+
+    // 更新状态
     if !imported_emails.is_empty() {
-        let mut state = load_state(&state_path).await?;
-        mark_accounts_imported(&mut state, &imported_emails);
-        save_state(&state_path, &state).await?;
+        let mut account_state = load_state(&state_path).await?;
+        mark_accounts_imported(&mut account_state, &imported_emails);
+        save_state(&state_path, &account_state).await?;
     }
-
-    if !output.status.success() && imported_emails.is_empty() {
-        return Err(AppError::new(format!(
-            "导入脚本执行失败: {}",
-            command_output_summary(&output)
-        )));
-    }
-
-    let failed = summary.failed_files.len();
-    let skipped = requested
-        .len()
-        .saturating_sub(imported_emails.len().saturating_add(failed));
 
     Ok(ImportResult {
         requested: requested.len(),
-        imported: imported_emails.len(),
-        skipped,
-        failed,
+        imported: imported_emails.len() - skipped_count,
+        skipped: skipped_count,
+        failed: failed_count,
         emails: imported_emails,
     })
 }
@@ -2062,10 +2112,14 @@ async fn read_single_codex_account(path: &Path) -> AppResult<Option<DiscoveredCo
             .unwrap_or(SystemTime::UNIX_EPOCH);
         system_time_to_rfc3339(modified)
     } else {
-        token_file.last_refresh
+        token_file.last_refresh.clone()
     };
 
-    Ok(Some(DiscoveredCodexAccount { email, created_at }))
+    Ok(Some(DiscoveredCodexAccount {
+        email,
+        created_at,
+        token_file,
+    }))
 }
 
 fn extract_email_from_id_token(id_token: &str) -> AppResult<String> {
