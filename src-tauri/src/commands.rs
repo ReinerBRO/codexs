@@ -216,7 +216,7 @@ pub async fn start_generation(
 
         let before_files = list_json_files(&tokens_dir, Some("token_")).await?;
         let output =
-            run_python_script(&paths, &tokens_dir, "openai_register.py", &["--once"]).await?;
+            run_python_script(&paths, &tokens_dir, "chatgpt_register.py", &["--once"]).await?;
         let after_files = list_json_files(&tokens_dir, Some("token_")).await?;
 
         if control.should_stop() {
@@ -1970,9 +1970,13 @@ async fn run_python_script(
     script_name: &str,
     args: &[&str],
 ) -> AppResult<Output> {
-    // For openai_register.py, use the bundled binary if available
-    if script_name == "openai_register.py" {
-        let binary_name = "openai_register_bin";
+    // For chatgpt_register.py or openai_register.py, use the bundled binary if available
+    if script_name == "chatgpt_register.py" || script_name == "openai_register.py" {
+        let binary_name = if script_name == "chatgpt_register.py" {
+            "chatgpt_register_bin"
+        } else {
+            "openai_register_bin"
+        };
         let binary_path = paths.scripts_dir.join(binary_name);
 
         if binary_path.exists() {
