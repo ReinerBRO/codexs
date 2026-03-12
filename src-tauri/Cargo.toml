@@ -1,6 +1,6 @@
 [package]
 name = "codexs"
-version = "0.3.0"
+version = "0.3.1"
 description = "codexs desktop app for OpenAI account generation workflows"
 authors = ["h1syu1"]
 license = "MIT"
