@@ -24,8 +24,10 @@ jobs:
         include:
           - arch_label: Apple Silicon
             rust_target: aarch64-apple-darwin
+            dmg_arch: aarch64
           - arch_label: Intel
             rust_target: x86_64-apple-darwin
+            dmg_arch: x86_64
 
     env:
       CI: true
@@ -64,46 +66,26 @@ jobs:
             exit 1
           fi
 
-      - name: Configure macOS signing mode
+      - name: Build app
+        run: npm run tauri build -- --target ${{ matrix.rust_target }}
         env:
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY_SECRET: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-        run: |
-          if [ -n "$APPLE_CERTIFICATE" ] && [ -n "$APPLE_CERTIFICATE_PASSWORD" ]; then
-            echo "Using Apple certificate secrets for signed builds."
-            echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE" >> "$GITHUB_ENV"
-            echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD" >> "$GITHUB_ENV"
-            if [ -n "$APPLE_SIGNING_IDENTITY_SECRET" ]; then
-              echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY_SECRET" >> "$GITHUB_ENV"
-            fi
-          else
-            echo "No Apple certificate configured; using ad-hoc signing."
-            echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
-            echo "APPLE_CERTIFICATE=" >> "$GITHUB_ENV"
-            echo "APPLE_CERTIFICATE_PASSWORD=" >> "$GITHUB_ENV"
-          fi
+          APPLE_SIGNING_IDENTITY: "-"
 
-      - name: Build and upload release artifacts
-        uses: tauri-apps/tauri-action@v0.6
+      - name: Ad-hoc codesign
+        run: |
+          APP_PATH="src-tauri/target/${{ matrix.rust_target }}/release/bundle/macos/Codexs.app"
+          codesign --force --deep --sign - "$APP_PATH"
+
+      - name: Create DMG
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          APP_PATH="src-tauri/target/${{ matrix.rust_target }}/release/bundle/macos/Codexs.app"
+          DMG_NAME="Codexs_${VERSION}_${{ matrix.dmg_arch }}.dmg"
+          hdiutil create -volname "Codexs" -srcfolder "$APP_PATH" -ov -format UDZO "$DMG_NAME"
+          echo "DMG_PATH=$DMG_NAME" >> "$GITHUB_ENV"
+
+      - name: Upload to release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_CERTIFICATE: ${{ env.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ env.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-        with:
-          tagName: ${{ github.ref_name }}
-          releaseName: codexs ${{ github.ref_name }}
-          releaseBody: |
-            Automated macOS release artifacts:
-            - Apple Silicon (`aarch64-apple-darwin`)
-            - Intel (`x86_64-apple-darwin`)
-
-            Download the `.dmg` file that matches your Mac architecture.
-          releaseDraft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          args: --target ${{ matrix.rust_target }}
-          assetNamePattern: "[name]_[version]_[arch][ext]"
+        run: |
+          gh release upload "${{ github.ref_name }}" "${{ env.DMG_PATH }}" --clobber
