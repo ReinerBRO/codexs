@@ -51,6 +51,14 @@ export interface Translations {
   management: {
     title: string
   }
+  bearer: {
+    label: string
+    placeholder: string
+    saved: string
+    missing: string
+    howToGet: string
+    howToGetDetail: string
+  }
   status: {
     success: string
     generating: string
@@ -110,6 +118,14 @@ const translations: Record<Language, Translations> = {
     management: {
       title: '账号管理',
     },
+    bearer: {
+      label: 'DuckMail Bearer Token',
+      placeholder: '粘贴你的 Bearer Token',
+      saved: '已保存',
+      missing: '未设置 Bearer Token，注册功能无法使用',
+      howToGet: '如何获取？',
+      howToGetDetail: '访问 duckmail.org → 登录 → 打开浏览器开发者工具 → Network → 找任意请求 → 复制 Authorization 头中 Bearer 后面的值',
+    },
     status: {
       success: '成功',
       generating: '正在生成',
@@ -167,6 +183,14 @@ const translations: Record<Language, Translations> = {
     management: {
       title: 'Account Management',
     },
+    bearer: {
+      label: 'DuckMail Bearer Token',
+      placeholder: 'Paste your Bearer Token',
+      saved: 'Saved',
+      missing: 'Bearer Token not set. Registration will not work.',
+      howToGet: 'How to get it?',
+      howToGetDetail: 'Go to duckmail.org → Log in → Open DevTools → Network → Pick any request → Copy the value after "Bearer" in the Authorization header',
+    },
     status: {
       success: 'Success',
       generating: 'Generating',
@@ -223,6 +247,14 @@ const translations: Record<Language, Translations> = {
     },
     management: {
       title: 'アカウント管理',
+    },
+    bearer: {
+      label: 'DuckMail Bearer Token',
+      placeholder: 'Bearer Token を貼り付け',
+      saved: '保存済み',
+      missing: 'Bearer Token が未設定です。登録機能は使用できません。',
+      howToGet: '取得方法',
+      howToGetDetail: 'duckmail.org にアクセス → ログイン → DevTools を開く → Network → 任意のリクエストを選択 → Authorization ヘッダーの "Bearer " 以降の値をコピー',
     },
     status: {
       success: '成功',

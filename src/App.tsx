@@ -110,6 +110,8 @@ function App() {
   const [isHydrating, setIsHydrating] = useState(true)
   const [runtimeReady, setRuntimeReady] = useState(false)
   const [generationStopped, setGenerationStopped] = useState(false)
+  const [bearerToken, setBearerToken] = useState('')
+  const [bearerSaved, setBearerSaved] = useState(false)
 
   const parsedCount = Number.parseInt(countInput, 10)
   const requestedCount = Number.isFinite(parsedCount) ? parsedCount : 0
@@ -202,6 +204,23 @@ function App() {
       unlisten?.()
     }
   }, [t])
+
+  useEffect(() => {
+    if (!isTauriRuntime()) return
+    invoke<{ duckmail_bearer: string }>('get_script_config')
+      .then((cfg) => setBearerToken(cfg.duckmail_bearer ?? ''))
+      .catch(() => {})
+  }, [])
+
+  const handleSaveBearer = async () => {
+    try {
+      await invoke('save_script_config', { config: { duckmail_bearer: bearerToken } })
+      setBearerSaved(true)
+      setTimeout(() => setBearerSaved(false), 2000)
+    } catch {
+      // ignore
+    }
+  }
 
   const toggleSelection = (email: string) => {
     setSelectedEmails((current) =>
@@ -392,6 +411,28 @@ function App() {
               <p className="panel-tag">{t.generation.subtitle}</p>
               <h2>{t.generation.title}</h2>
             </div>
+
+            <label className="field-card" htmlFor="bearerTokenInput">
+              <span className="field-label">{t.bearer.label}</span>
+              <div className="field-input">
+                <input
+                  id="bearerTokenInput"
+                  type="password"
+                  value={bearerToken}
+                  onChange={(e) => setBearerToken(e.target.value)}
+                  placeholder={t.bearer.placeholder}
+                  disabled={isGenerating || isImporting}
+                />
+                <button
+                  type="button"
+                  className="field-inline-button"
+                  onClick={handleSaveBearer}
+                  disabled={isGenerating || isImporting}
+                >
+                  {bearerSaved ? t.bearer.saved : '保存'}
+                </button>
+              </div>
+            </label>
 
             <label className="field-card" htmlFor={countId}>
               <span className="field-label">{t.generation.countLabel}</span>

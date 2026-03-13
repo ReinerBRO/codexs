@@ -28,7 +28,9 @@ pub fn run() {
             commands::sync_auth_to_ssh,
             commands::parse_ssh_config,
             commands::find_codex_sessions,
-            commands::terminate_and_resume_sessions
+            commands::terminate_and_resume_sessions,
+            commands::get_script_config,
+            commands::save_script_config
         ])
         .setup(|app| {
             if cfg!(debug_assertions) {

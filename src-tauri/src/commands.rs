@@ -999,6 +999,35 @@ pub async fn terminate_and_resume_sessions(current_cwd: Option<String>) -> Resul
     Ok(resumed)
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct ScriptConfig {
+    pub duckmail_bearer: String,
+}
+
+#[tauri::command]
+pub async fn get_script_config(app: AppHandle) -> Result<ScriptConfig, String> {
+    let paths = app_paths(&app).map_err(|e| e.to_string())?;
+    let config_path = paths.scripts_dir.join("config.json");
+    if !fs::try_exists(&config_path).await.unwrap_or(false) {
+        return Ok(ScriptConfig::default());
+    }
+    let content = fs::read_to_string(&config_path)
+        .await
+        .map_err(|e| format!("读取 config.json 失败: {e}"))?;
+    serde_json::from_str(&content).map_err(|e| format!("解析 config.json 失败: {e}"))
+}
+
+#[tauri::command]
+pub async fn save_script_config(app: AppHandle, config: ScriptConfig) -> Result<(), String> {
+    let paths = app_paths(&app).map_err(|e| e.to_string())?;
+    let config_path = paths.scripts_dir.join("config.json");
+    let content = serde_json::to_string_pretty(&config)
+        .map_err(|e| format!("序列化 config 失败: {e}"))?;
+    fs::write(&config_path, content)
+        .await
+        .map_err(|e| format!("写入 config.json 失败: {e}"))
+}
+
 #[derive(Debug, Clone)]
 struct UsageUpdate {
     auth_json: Value,
