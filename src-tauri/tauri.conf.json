@@ -45,7 +45,7 @@
     ],
     "macOS": {
       "minimumSystemVersion": "11.0",
-      "hardenedRuntime": true,
+      "hardenedRuntime": false,
       "entitlements": "./entitlements/macos.plist",
       "infoPlist": "./Info.plist",
       "dmg": {
