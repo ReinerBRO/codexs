@@ -72,20 +72,24 @@ jobs:
         run: |
           if [ -n "$APPLE_CERTIFICATE" ] && [ -n "$APPLE_CERTIFICATE_PASSWORD" ]; then
             echo "Using Apple certificate secrets for signed builds."
+            echo "APPLE_CERTIFICATE=$APPLE_CERTIFICATE" >> "$GITHUB_ENV"
+            echo "APPLE_CERTIFICATE_PASSWORD=$APPLE_CERTIFICATE_PASSWORD" >> "$GITHUB_ENV"
             if [ -n "$APPLE_SIGNING_IDENTITY_SECRET" ]; then
               echo "APPLE_SIGNING_IDENTITY=$APPLE_SIGNING_IDENTITY_SECRET" >> "$GITHUB_ENV"
             fi
           else
             echo "No Apple certificate configured; using ad-hoc signing."
             echo "APPLE_SIGNING_IDENTITY=-" >> "$GITHUB_ENV"
+            echo "APPLE_CERTIFICATE=" >> "$GITHUB_ENV"
+            echo "APPLE_CERTIFICATE_PASSWORD=" >> "$GITHUB_ENV"
           fi
 
       - name: Build and upload release artifacts
         uses: tauri-apps/tauri-action@v0.6
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_CERTIFICATE: ${{ env.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ env.APPLE_CERTIFICATE_PASSWORD }}
           APPLE_SIGNING_IDENTITY: ${{ env.APPLE_SIGNING_IDENTITY }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
@@ -102,4 +106,4 @@ jobs:
           releaseDraft: false
           prerelease: ${{ contains(github.ref_name, '-') }}
           args: --target ${{ matrix.rust_target }}
-          releaseAssetNamePattern: "[name]_[version]_[arch][ext]"
+          assetNamePattern: "[name]_[version]_[arch][ext]"
