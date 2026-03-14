@@ -55,11 +55,16 @@ Codexs 是一个独立的 Codex 账号管理工具，提供批量生成账号、
 1. 下载最新版本的 [Codexs.dmg](https://github.com/ReinerBRO/codexs/releases/latest)
 2. 拖动到 Applications 文件夹
 3. 打开应用（首次打开需要右键 → 打开）
-4. 如果你之前使用过 Codex Tools，运行迁移脚本（可选）：
+4. 获取 DuckMail Bearer Token（账号生成必需）：
+   - 访问 [duckmail.org](https://duckmail.org) 并登录
+   - 打开浏览器开发者工具（F12）→ Network 标签
+   - 找任意请求 → 复制 Authorization 头中 `Bearer` 后面的值
+   - 在 Codexs 应用中粘贴并保存
+5. 如果你之前使用过 Codex Tools，运行迁移脚本（可选）：
    ```bash
    /Applications/Codexs.app/Contents/Resources/scripts/migrate.sh
    ```
-5. 开始使用！
+6. 开始使用！
 
 ### 数据迁移（从 Codex Tools）
 
@@ -141,11 +146,16 @@ Codexs is an independent Codex account management tool that provides batch accou
 1. Download the latest [Codexs.dmg](https://github.com/ReinerBRO/codexs/releases/latest)
 2. Drag to Applications folder
 3. Open the app (first time: right-click → Open)
-4. If you previously used Codex Tools, run the migration script (optional):
+4. Get your DuckMail Bearer Token (required for account generation):
+   - Go to [duckmail.org](https://duckmail.org) and log in
+   - Open browser DevTools (F12) → Network tab
+   - Pick any request → Copy the value after `Bearer` in the Authorization header
+   - Paste and save it in the Codexs app
+5. If you previously used Codex Tools, run the migration script (optional):
    ```bash
    /Applications/Codexs.app/Contents/Resources/scripts/migrate.sh
    ```
-5. Start using!
+6. Start using!
 
 ### Data Migration (from Codex Tools)
 
@@ -227,11 +237,16 @@ Codexs は独立した Codex アカウント管理ツールで、バッチアカ
 1. 最新の [Codexs.dmg](https://github.com/ReinerBRO/codexs/releases/latest) をダウンロード
 2. Applications フォルダにドラッグ
 3. アプリを開く（初回：右クリック → 開く）
-4. 以前に Codex Tools を使用していた場合は、移行スクリプトを実行（オプション）：
+4. DuckMail Bearer Token を取得（アカウント生成に必須）：
+   - [duckmail.org](https://duckmail.org) にアクセスしてログイン
+   - ブラウザの DevTools（F12）→ Network タブを開く
+   - 任意のリクエストを選択 → Authorization ヘッダーの `Bearer` 以降の値をコピー
+   - Codexs アプリに貼り付けて保存
+5. 以前に Codex Tools を使用していた場合は、移行スクリプトを実行（オプション）：
    ```bash
    /Applications/Codexs.app/Contents/Resources/scripts/migrate.sh
    ```
-5. 使用開始！
+6. 使用開始！
 
 ### データ移行（Codex Tools から）
 
